@@ -1,0 +1,15 @@
+torch
+pytorch-lightning
+timm
+torchvision
+albumentations
+captum
+shap
+streamlit
+wandb
+opencv-python
+scikit-learn
+matplotlib
+seaborn
+ruff
+pytest
