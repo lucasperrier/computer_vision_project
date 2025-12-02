@@ -6,7 +6,7 @@ from src.data.datamodule import CrackDataModule
 
 # Instantiate
 model = ResNet50Module()
-dm = CrackDataModule(batch_size=4)
+dm = CrackDataModule(batch_size=16)
 dm.setup()
 
 # Get a batch
