@@ -1,0 +1,14 @@
+artifact_uri: file:///home/lucas-perrier/Documents/ESILV/S9/computer_vision/computer_vision_project/mlruns/532985920235893590/9fe9ea28804142b59ce0598c7fbac592/artifacts
+end_time: 1764683883722
+entry_point_name: ''
+experiment_id: '532985920235893590'
+lifecycle_stage: active
+run_id: 9fe9ea28804142b59ce0598c7fbac592
+run_name: vit_base_patch16_head
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1764683293538
+status: 4
+tags: []
+user_id: lucas-perrier
