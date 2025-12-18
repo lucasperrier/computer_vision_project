@@ -1,4 +1,0 @@
-# Common training config
-seed: 42
-log_dir: reports/
-use_wandb: true

@@ -57,6 +57,8 @@ def main(config_path: str):
             monitor='val_loss',
             mode='min',
             save_top_k=1,
+            every_n_epochs=1,
+            dirpath=f"runs/{experiment_name}-{run_name}",
             filename=f"{config.get('model', 'model')}-" + "{epoch:02d}-{val_loss:.4f}"
         )
         callbacks = [

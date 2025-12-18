@@ -1,10 +1,10 @@
 model: vit_base_patch16_224
 pretrained: true
 num_classes: 2
-optimizer: adamw
+optimizer: adam
 learning_rate: 0.00005
 weight_decay: 0.00001
-scheduler: cosine
+# scheduler: cosine
 batch_size: 4
 epochs: 5
 num_workers: 0
@@ -14,5 +14,5 @@ robustness_split: 0.1
 freeze_layers: 10
 experiment_name: crack_detection
 tracking_uri: file:./mlruns
-run_name: vit_base_patch16_head_2
+run_name: vit_base_patch16_head_3
 deterministic: true
