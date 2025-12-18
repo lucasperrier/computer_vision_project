@@ -1,0 +1,44 @@
+seed: 42
+deterministic: true
+
+# Model to instantiate via timm
+model: resnet50
+num_classes: 2
+pretrained: true
+
+# Data module params
+batch_size: 32
+num_workers: 4
+val_split: 0.1
+test_split: 0.1
+robustness_split: 0.1
+
+# IMPORTANT: don't load a finetuned checkpoint
+checkpoint_path: null
+
+# Output
+output_dir: reports/eval_pretrained_resnet
+save_predictions: true
+save_confusion_matrix: true
+
+# Optional MLflow logging
+use_mlflow: false
+tracking_uri: file:./mlruns
+experiment_name: crack_detection
+run_name: eval_pretrained_resnet
+
+# Explainability output
+n_explain_images: 12
+overlay_alpha: 0.45
+
+# SHAP controls
+do_shap: true
+shap_max_evals: 500
+shap_batch_size: 16
+shap_segmentation: slic
+
+# ViT patch SHAP (VERY slow)
+do_shap_vit_patch: false
+vit_patch_size: 16
+vit_patch_shap_nsamples: 300
+vit_patch_shap_baseline: blur
