@@ -1,26 +1,28 @@
-# Python
+# Data
+data/raw/
+data/interim/
+data/processed/
+data/*.zip
+data/**/*.zip
+
+# MLflow tracking/artifacts
+mlruns/
+mlartifacts/
+
+# Model artifacts / checkpoints / logs
+**/*.ckpt
+lightning_logs/
+checkpoints/
+trained_models/
+wandb/
+
+# Python / env
+.venv/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.env
-.venv
-venv/
-ENV/
 
-# Jupyter Notebooks
-.ipynb_checkpoints
-
-# Data
-/data/raw/
-/data/interim/
-/data/processed/
-
-# Reports
-/reports/
-
-# Streamlit
-dashboard/__pycache__/
+# Reports (optional: keep figures/metrics if you want)
+reports/
 
 # VSCode
 .vscode/
