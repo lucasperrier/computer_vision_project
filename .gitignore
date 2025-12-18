@@ -24,3 +24,6 @@ dashboard/__pycache__/
 
 # VSCode
 .vscode/
+
+runpod
+runpod.pub

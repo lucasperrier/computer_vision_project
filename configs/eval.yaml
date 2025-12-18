@@ -1,0 +1,38 @@
+# Evaluation config (works for ResNet and ViT)
+
+seed: 42
+deterministic: true
+
+# Which model family to instantiate (used when loading weights/ckpt)
+# Examples:
+# - "resnet50"
+# - "vit_base_patch16_224"
+model: resnet50
+num_classes: 2
+pretrained: false  # evaluation should not pull ImageNet weights unless you explicitly want it
+
+# Data module params (must match what you used in training)
+batch_size: 32
+num_workers: 4
+val_split: 0.1
+test_split: 0.1
+robustness_split: 0.1
+
+# Evaluation source
+# Option A) Lightning checkpoint produced by Trainer (recommended)
+checkpoint_path: mlruns/532985920235893590/27d7f552e0af4f2fa206d9e9a05fa0a1/checkpoints/resnet50-epoch=00-val_loss=0.0179.ckpt
+
+# Option B) Evaluate a "fresh" model with random or pretrained weights (for sanity checks)
+# If checkpoint_path is null, the script will evaluate the instantiated model as-is.
+
+# Logging
+log_dir: reports/
+use_mlflow: false
+tracking_uri: file:./mlruns
+experiment_name: crack_detection
+run_name: eval_run
+
+# Output files
+output_dir: reports/eval
+save_predictions: true
+save_confusion_matrix: true
