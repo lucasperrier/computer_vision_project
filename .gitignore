@@ -25,5 +25,9 @@ dashboard/__pycache__/
 # VSCode
 .vscode/
 
+# runpod
 runpod
 runpod.pub
+
+# mlruns
+/mlruns/
