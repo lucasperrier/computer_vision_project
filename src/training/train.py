@@ -88,7 +88,8 @@ def main(config_path: str):
             callbacks=callbacks,
             log_every_n_steps=1,
             deterministic=config.get('deterministic', False),
-            accelerator='auto'
+            accelerator='auto',
+            val_check_interval=float(config.get("val_check_interval", 1.0)),
         )
 
         trainer.fit(model, datamodule=datamodule)

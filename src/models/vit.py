@@ -20,12 +20,31 @@ class VisionTransformerModule(pl.LightningModule):
         model_name = self.hparams.get('model', 'vit_base_patch16_224')
         pretrained = self.hparams.get('pretrained', True)
 
-        self.model = timm.create_model(model_name, pretrained=pretrained, num_classes=num_classes)
-        freeze_layers = self.hparams.get('freeze_layers', 0)
-        if freeze_layers:
-            self._freeze_layers(freeze_layers)
+        # Regularization knobs (timm-supported)
+        drop_rate = float(self.hparams.get("drop_rate", 0.0))
+        drop_path_rate = float(self.hparams.get("drop_path_rate", 0.0))
 
-        self.criterion = nn.CrossEntropyLoss()
+        self.model = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=num_classes,
+            drop_rate=drop_rate,
+            drop_path_rate=drop_path_rate,
+        )
+
+        # Loss regularization
+        label_smoothing = float(self.hparams.get("label_smoothing", 0.0))
+        self.criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+
+        # Freezing options
+        freeze_mode = str(self.hparams.get("freeze_mode", "first_n_blocks")).lower()
+        freeze_layers = int(self.hparams.get('freeze_layers', 0))
+
+        if freeze_mode == "head_only":
+            self._freeze_all_but_head()
+        elif freeze_layers:
+            self._freeze_first_n_blocks(freeze_layers)
+
         self.train_acc = Accuracy(task='binary')
         self.train_f1 = F1Score(task='binary')
         self.train_auc = AUROC(task='binary')
@@ -56,7 +75,7 @@ class VisionTransformerModule(pl.LightningModule):
             acc_metric = self.val_acc
             f1_metric = self.val_f1
             auc_metric = self.val_auc
-        elif stage == 'test':
+        else:
             acc_metric = self.test_acc
             f1_metric = self.test_f1
             auc_metric = self.test_auc
@@ -95,9 +114,33 @@ class VisionTransformerModule(pl.LightningModule):
             return {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optimizer
 
-    def _freeze_layers(self, num_layers: int):
+    def _freeze_all_but_head(self):
+        # freeze everything
+        for p in self.model.parameters():
+            p.requires_grad = False
+
+        # unfreeze classifier head (timm uses different names across models)
+        for name in ["head", "fc", "classifier"]:
+            if hasattr(self.model, name):
+                mod = getattr(self.model, name)
+                if mod is not None:
+                    for p in mod.parameters():
+                        p.requires_grad = True
+
+    def _freeze_first_n_blocks(self, num_layers: int):
+        # freeze patch embedding + pos embed + norm as well (common for small data)
+        for name in ["patch_embed", "pos_embed", "cls_token", "norm_pre", "norm"]:
+            if hasattr(self.model, name):
+                obj = getattr(self.model, name)
+                if isinstance(obj, torch.nn.Parameter):
+                    obj.requires_grad = False
+                elif obj is not None and hasattr(obj, "parameters"):
+                    for p in obj.parameters():
+                        p.requires_grad = False
+
         if not hasattr(self.model, 'blocks'):
             return
+
         for idx, block in enumerate(self.model.blocks):
             if idx < num_layers:
                 for param in block.parameters():

@@ -16,7 +16,7 @@ from src.explainability.shap_utils import (
     shap_explain_superpixels,
     shap_explain_vit_patches_kernel,
 )
-from src.explainability.viz import (
+from src.explainability.utils import (
     denormalize_imagenet,
     to_uint8_hwc,
     colorize_heatmap,
