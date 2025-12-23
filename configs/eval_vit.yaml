@@ -16,7 +16,7 @@ robustness_split: 0.1
 checkpoint_path: runs/crack_detection-vit_base_patch16_head_4/vit_base_patch16_224-epoch=00-val_loss=0.2208.ckpt
 
 # Output
-output_dir: reports/eval_trained_resnet
+output_dir: reports/eval_trained_vit
 save_predictions: true
 save_confusion_matrix: true
 

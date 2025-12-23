@@ -33,3 +33,5 @@ runpod.pub
 
 # mlruns
 /mlruns/
+
+*.db
