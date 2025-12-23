@@ -13,6 +13,7 @@ from src.models.vit import VisionTransformerModule
 from src.explainability.grad_cam import GradCAM, upsample_cam_to_image
 from src.explainability.shap_utils import (
     make_predict_fn_from_torch,
+    shap_explain_resnet_superpixels_kernel,
     shap_explain_superpixels,
     shap_explain_vit_patches_kernel,
 )
@@ -87,6 +88,22 @@ def main(config_path: str):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Explainability settings
+    n_images = int(cfg.get("n_explain_images", 12))
+    alpha = float(cfg.get("overlay_alpha", 0.45))
+
+    do_shap = bool(cfg.get("do_shap", True))
+    do_shap_vit_patch = bool(cfg.get("do_shap_vit_patch", False))
+
+    print(f"[INFO] Config: {config_path}")
+    print(f"[INFO] Output dir: {out_dir}")
+    print(f"[INFO] Device: {device}")
+    print(f"[INFO] n_explain_images={n_images}, overlay_alpha={alpha}")
+    print(f"[INFO] do_shap={do_shap}, do_shap_vit_patch={do_shap_vit_patch}")
+
+    # Data
+    print("[INFO] Building datamodule...")
+
     # Data
     datamodule = CrackDataModule(
         batch_size=int(cfg.get("batch_size", 32)),
@@ -95,23 +112,26 @@ def main(config_path: str):
         test_split=float(cfg.get("test_split", 0.1)),
         robustness_split=float(cfg.get("robustness_split", 0.1)),
     )
+
+    print("[INFO] Setting up datamodule (stage=test)...")
     datamodule.setup(stage="test")
     dl = datamodule.test_dataloader()
+    print("[INFO] Dataloader ready.")
 
     # Model
+    print("[INFO] Building model...")
     model = build_model(cfg)
     model = load_from_checkpoint_if_any(cfg, model)
     model.eval().to(device)
 
     timm_model = model.model  # your LightningModules store timm model here
     model_name = str(cfg.get("model", "resnet50"))
-
-    # Explainability settings
-    n_images = int(cfg.get("n_explain_images", 12))
-    alpha = float(cfg.get("overlay_alpha", 0.45))
+    print(f"[INFO] Model: {model_name}")
+    print(f"[INFO] Checkpoint: {cfg.get('checkpoint_path', None)}")
 
     # Grad-CAM setup
     target_layer = pick_gradcam_target_layer(model_name, timm_model)
+    print(f"[INFO] Grad-CAM target layer: {target_layer.__class__.__name__}")
     gc = GradCAM(timm_model, target_layer=target_layer)
 
     # SHAP setup
@@ -122,6 +142,27 @@ def main(config_path: str):
     do_shap_vit_patch = bool(cfg.get("do_shap_vit_patch", False))
     shap_max_evals = int(cfg.get("shap_max_evals", 500))
     shap_batch_size = int(cfg.get("shap_batch_size", 16))
+
+    if do_shap:
+        print(f"[INFO] SHAP settings: shap_max_evals={shap_max_evals}, shap_batch_size={shap_batch_size}")
+        if "vit" in model_name.lower():
+            print(
+                "[INFO] ViT SHAP settings: "
+                f"vit_patch_size={int(cfg.get('vit_patch_size', 16))}, "
+                f"vit_patch_shap_nsamples={int(cfg.get('vit_patch_shap_nsamples', 300))}, "
+                f"vit_patch_shap_baseline={str(cfg.get('vit_patch_shap_baseline', 'blur'))}"
+            )
+        else:
+            print(
+                "[INFO] ResNet SHAP settings: "
+                f"shap_n_segments={int(cfg.get('shap_n_segments', 80))}, "
+                f"shap_compactness={float(cfg.get('shap_compactness', 10.0))}, "
+                f"shap_nsamples={int(cfg.get('shap_nsamples', 500))}, "
+                f"shap_baseline={str(cfg.get('shap_baseline', 'blur'))}"
+            )
+
+    # Iterate over test data, save explanations
+    print("[INFO] Starting explanation loop...")
 
     # Iterate over test data, save explanations
     saved = 0
@@ -136,6 +177,8 @@ def main(config_path: str):
 
             xi = x[i : i + 1]  # (1,3,224,224)
             yi = int(y[i])
+
+            print(f"[INFO] [{saved+1}/{n_images}] Explaining sample batch={batch_idx} idx={i} label={yi}...")
 
             # Convert to displayable RGB
             img01 = denormalize_imagenet(xi[0]).detach()
@@ -155,38 +198,61 @@ def main(config_path: str):
             save_png(out_dir / f"{stem}_image.png", img_u8)
             save_png(out_dir / f"{stem}_gradcam_overlay.png", overlay)
             save_png(out_dir / f"{stem}_gradcam_heatmap.png", hm_u8)
+            print(f"[INFO] [{saved+1}/{n_images}] Grad-CAM saved ({stem}).")
 
-            # ---------- SHAP (superpixels) ----------
+            # ---------- SHAP (practical) ----------
             if do_shap:
-                # shap expects (B,H,W,3) uint8
-                shap_out = shap_explain_superpixels(
-                    predict_fn,
-                    img_u8[None, ...],
-                    target_class=None,
-                    max_evals=shap_max_evals,
-                    batch_size=shap_batch_size,
-                    segmentation=str(cfg.get("shap_segmentation", "slic")),
-                )
-                # shap_out.values typically (1,H,W,3). Convert to intensity for visualization.
-                vals = shap_out.values
-                if vals.ndim == 4:
-                    # aggregate channels
-                    shap_map = np.mean(np.abs(vals[0]), axis=2)  # (H,W)
-                else:
-                    shap_map = np.abs(vals[0])
+                print(f"[INFO] [{saved+1}/{n_images}] SHAP starting (may be slow)...")
+                try:
+                    if "vit" in model_name.lower():
+                        # For ViT, use patch SHAP (token-aligned). Usually explain very few images.
+                        patch_out = shap_explain_vit_patches_kernel(
+                            timm_model,
+                            device,
+                            xi[0].detach(),
+                            patch_size=int(cfg.get("vit_patch_size", 16)),
+                            vit_grid=vit_grid_from_name(model_name),
+                            nsamples=int(cfg.get("vit_patch_shap_nsamples", 300)),
+                            baseline=str(cfg.get("vit_patch_shap_baseline", "blur")),
+                        )
+                        patch_map = np.abs(patch_out.values[0])  # (14,14)
+                        patch_map = patch_map - patch_map.min()
+                        patch_map = patch_map / (patch_map.max() + 1e-6)
 
-                # normalize to [0,1]
-                shap_map = shap_map - shap_map.min()
-                shap_map = shap_map / (shap_map.max() + 1e-6)
+                        patch_map_t = torch.from_numpy(patch_map).float()[None, None, :, :]
+                        patch_map_224 = torch.nn.functional.interpolate(
+                            patch_map_t, size=(224, 224), mode="bilinear", align_corners=False
+                        )[0, 0].numpy()
 
-                shap_hm_u8 = colorize_heatmap(shap_map)
-                shap_overlay = overlay_heatmap_on_image(img_u8, shap_hm_u8, alpha=alpha)
-                save_png(out_dir / f"{stem}_shap_superpix_overlay.png", shap_overlay)
-                save_png(out_dir / f"{stem}_shap_superpix_heatmap.png", shap_hm_u8)
+                        shap_hm_u8 = colorize_heatmap(patch_map_224)
+                    else:
+                        # For ResNet, use superpixel KernelSHAP (feasible)
+                        sp_out = shap_explain_resnet_superpixels_kernel(
+                            timm_model,
+                            device,
+                            img_u8,
+                            n_segments=int(cfg.get("shap_n_segments", 80)),
+                            compactness=float(cfg.get("shap_compactness", 10.0)),
+                            nsamples=int(cfg.get("shap_nsamples", 500)),
+                            baseline=str(cfg.get("shap_baseline", "blur")),
+                        )
+                        shap_map = np.abs(sp_out.values[0])  # (224,224)
+                        shap_map = shap_map - shap_map.min()
+                        shap_map = shap_map / (shap_map.max() + 1e-6)
+                        shap_hm_u8 = colorize_heatmap(shap_map)
+
+                    shap_overlay = overlay_heatmap_on_image(img_u8, shap_hm_u8, alpha=alpha)
+                    save_png(out_dir / f"{stem}_shap_overlay.png", shap_overlay)
+                    save_png(out_dir / f"{stem}_shap_heatmap.png", shap_hm_u8)
+                    print(f"[INFO] [{saved+1}/{n_images}] SHAP saved ({stem}).")
+
+                except Exception as e:
+                    print(f"[WARN] [{saved+1}/{n_images}] SHAP failed for {stem}: {type(e).__name__}: {e}")
 
             # ---------- SHAP (ViT patch KernelSHAP) ----------
             # WARNING: slow. Default is off.
             if do_shap_vit_patch and "vit" in model_name.lower():
+                print(f"[INFO] [{saved+1}/{n_images}] Extra ViT patch SHAP starting (very slow)...")
                 patch_out = shap_explain_vit_patches_kernel(
                     timm_model,
                     device,
@@ -210,6 +276,7 @@ def main(config_path: str):
                 patch_overlay = overlay_heatmap_on_image(img_u8, patch_hm_u8, alpha=alpha)
                 save_png(out_dir / f"{stem}_shap_vitpatch_overlay.png", patch_overlay)
                 save_png(out_dir / f"{stem}_shap_vitpatch_heatmap.png", patch_hm_u8)
+                print(f"[INFO] [{saved+1}/{n_images}] Extra ViT patch SHAP saved ({stem}).")
 
             saved += 1
 
