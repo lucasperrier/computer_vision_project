@@ -1,84 +1,105 @@
-# Explainable Crack Detection with Vision Transformers and CNNs
+# Computer Vision Project — Crack Detection (ResNet-50 vs ViT)
 
-## Project Overview
-This project benchmarks a Vision Transformer (ViT) against a CNN (ResNet-50) for crack detection in concrete, integrating explainability tools (Grad-CAM, SHAP) and a dashboard for engineering decision support.
+This repository contains the code and artifacts for a concrete crack detection project comparing a CNN baseline (ResNet-50) and a Vision Transformer (ViT-B/16) under a unified pipeline.
 
-## Execution roadmap
+It includes:
 
-### Environment & data intake
-- Pin dependencies (PyTorch, Lightning, timm, torchvision, Captum, SHAP, albumentations, Streamlit, wandb).
-- Download SDNET2018 + CCIC into data/raw; script checksums and metadata catalog (src/data/download.py).
-- Build preprocessing notebook to inspect label balance, lighting conditions, and standardize resolution (e.g., 224×224).
+- Training with PyTorch Lightning + Hydra configs
+- Experiment tracking with MLflow (SQLite backend)
+- Evaluation artifacts (metrics JSON, confusion matrices, predictions)
+- Explainability (Grad-CAM + SHAP) for both ResNet and ViT
 
-### Data module & augmentation
-- Implement CrackDataModule handling combined dataset splits (train/val/test + robustness hold-out).
-- Add augmentations (random rotations, color jitter for lighting, Gaussian noise) via albumentations; ensure deterministic val/test transforms.
-- Unit-test dataloader shapes, normalization stats, and class distribution.
+## Results (test split)
 
-### Baseline CNN training
-- Define ResNet50Module using LightningModule with configurable optimizer/scheduler.
-- Train with early stopping + checkpoints; log metrics (accuracy/F1/AUC) and confusion matrix per epoch.
-- Save best weights and sample Grad-CAM maps to confirm localization quality.
+Metrics below come from the generated `reports/**/metrics.json` files.
 
-### ViT fine-tuning
-- Load ImageNet-pretrained ViT (e.g., vit_base_patch16_224) with head adapted for binary classification.
-- Experiment with layer freezing/unfreezing schedule; use mixup/cutmix if beneficial.
-- Track same metrics plus attention rollout visualizations; ensure >95% accuracy target feasibility.
+| Model / Condition | Accuracy | F1 | AUROC |
+|---|---:|---:|---:|
+| ViT (fine-tuned) | **0.9978** | **0.9978** | **0.99997** |
+| ResNet (fine-tuned) | 0.8572 | 0.8486 | 0.9483 |
+| ViT (pretrained only, no fine-tuning) | 0.3115 | 0.4087 | 0.2515 |
+| ResNet (pretrained only, no fine-tuning) | 0.2040 | 0.2386 | 0.1436 |
 
-### Explainability suite
-- Build reusable Grad-CAM wrapper (supports CNN & ViT) and SHAP pipeline (sampling background sets).
-- Quantify localization accuracy (IoU or pointing game) using available crack masks or proxy bounding boxes if dataset lacks them (can annotate small subset).
-- Implement faithfulness tests (remove top-k pixels vs random).
+## Repository layout
 
-### Robustness evaluations
-- Craft synthetic lighting/material perturbations (brightness shifts, texture overlays) and measure metric deltas for both models.
-- Summarize robustness gap tables + statistical tests if possible.
+- `configs/`: YAML experiment configs (train/eval/explainability)
+- `src/`:
+	- `data/`: Lightning `CrackDataModule`
+	- `models/`: `ResNet50Module`, `VisionTransformerModule`
+	- `training/`: training entrypoint
+	- `evaluation/`: evaluation scripts (metrics + artifacts)
+	- `explainability/`: Grad-CAM + SHAP utilities and runner
+- `reports/`: generated outputs (metrics, confusion matrices, predictions, explanations)
+- `mlruns/`: MLflow tracking directory
+- `mlflow.db`: MLflow SQLite database
+- `tests/`: unit tests
 
-### Dashboard & reporting
-- Streamlit app: model selector, upload/custom image, show prediction, Grad-CAM heatmap, SHAP explanation, and metric summaries.
-- Generate final report notebook exporting plots (ROC curves, attention maps, robustness charts) into reports/.
+## Environment setup
 
-### Automation & CI
-- Add CLI entrypoints (python -m src.training.train --config configs/model_vit.yaml, etc.).
-- Write unit/integration tests for data splits, metrics, explainability outputs (e.g., heatmap shape, saliency sum).
-- Optional: GitHub Actions to lint (ruff), run smoke tests on CPU subset.
-
-## Work Split (Two Contributors)
-
-**Contributor 1:**
-- Data intake, preprocessing, augmentation
-- Baseline CNN (ResNet-50) implementation and training
-- Grad-CAM explainability for CNN
-- Initial dashboard setup
-
-**Contributor 2:**
-- ViT fine-tuning and training
-- SHAP explainability for ViT and CNN
-- Robustness evaluation
-- Dashboard completion and reporting
-
-Both contributors should collaborate on data module, evaluation metrics, and final report.
-
-## Directory Structure
-```
-configs/
-data/
-notebooks/
-src/
-dashboard/
-tests/
-reports/
-docs/
-```
-
-## Getting Started
 ```bash
 pip install -r requirements.txt
 ```
 
+## Data
+
+Place datasets under `data/raw/`.
+
+The project was run with SDNET2018-style and CCIC-style folder structures. At a minimum, ensure you have positive/negative (or crack/no-crack) subfolders.
+
+## Training
+
+Training is driven by YAML configs in `configs/`.
+
+```bash
+python -m src.training.train --config configs/train_vit.yaml
+python -m src.training.train --config configs/train_resnet.yaml
+```
+
+Outputs:
+
+- MLflow runs in `mlruns/` and `mlflow.db`
+- checkpoints/artifacts under `runs/` and MLflow artifacts
+
+## Evaluation
+
+Evaluation writes artifacts under `reports/` (including `metrics.json`, confusion matrix, and saved predictions).
+
+```bash
+python -m src.evaluation.evaluate --config configs/eval_vit.yaml
+python -m src.evaluation.evaluate --config configs/eval_resnet.yaml
+```
+
+Pretrained-only baselines (no fine-tuning):
+
+```bash
+python -m src.evaluation.evaluate --config configs/eval_baseline_vit.yaml
+python -m src.evaluation.evaluate --config configs/eval_baseline_resnet.yaml
+```
+
+## Explainability
+
+Explainability outputs (overlays and heatmaps) are written under `reports/**/explanations/`.
+
+```bash
+python -m src.explainability.run_explainability --config configs/run_explainability_vit.yaml
+python -m src.explainability.run_explainability --config configs/run_explainability_resnet.yaml
+```
+
+## Report
+
+The final report is written in LaTeX and references figures under `report/figures/`.
+
+Evaluation metrics used in the report are stored in:
+
+- `reports/eval_trained_vit/metrics.json`
+- `reports/eval_trained_resnet/metrics.json`
+- `reports/eval_pretrained_vit/metrics.json`
+- `reports/eval_pretrained_resnet/metrics.json`
+
 ## References
-- SDNET2018, CCIC datasets
-- Dosovitskiy et al., "An Image is Worth 16x16 Words"
-- Selvaraju et al., "Grad-CAM"
-- Kashefi et al., "Explainability of Vision Transformers"
-``
+
+- Dosovitskiy, A. et al. *An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale*. ICLR 2021. https://arxiv.org/abs/2010.11929
+- Golding, V.P.; Gharineiat, Z.; Munawar, H.S.; Ullah, F. *Crack Detection in Concrete Structures Using Deep Learning*. Sustainability 2022, 14, 8117. https://doi.org/10.3390/su14138117
+- Kashefi, R.; Barekatain, L.; Sabokrou, M.; Aghaeipoor, F. *Explainability of Vision Transformers: A Comprehensive Review and New Perspectives*. arXiv 2023. https://arxiv.org/abs/2311.06786
+- Selvaraju, R.R. et al. *Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization*. IJCV 2020, 128, 336--359. https://doi.org/10.1007/s11263-019-01228-7
+- Zhang, X. et al. *Deep Learning for Crack Detection: A Review of Learning Paradigms, Generalizability, and Datasets*. arXiv 2025. https://arxiv.org/abs/2508.10256
