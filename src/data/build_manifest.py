@@ -122,7 +122,7 @@ def build_manifest(raw_root: Path) -> pd.DataFrame:
                 "width",
                 "height",
                 "channels",
-                "file_size"
+                "file_size",
                 "sha256",
             ]
         )
