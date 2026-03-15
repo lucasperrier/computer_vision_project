@@ -60,6 +60,7 @@ Success criteria:
 - dataset contents are inspectable and reproducible
 - raw folder traversal is no longer the hidden source of truth
 
+A manifest is a table that lists every image and its metadata, in the goal of making data ingestion a reproducible process. Without a manifest, you do not know exactly which files were used, you cannot indpect the whole dataset easily, debugging and reproducibility are weaker. With a manifest, every image is recorder, metadata is explicit, dataset changes become trackable. A manifest is an inventory sheet for your dataset.
 ---
 
 ### 2. Generate and persist split files
