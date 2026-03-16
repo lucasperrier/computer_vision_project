@@ -122,6 +122,8 @@ Success criteria:
 
 ### 4. Refactor preprocessing into shared modules
 
+transforms.py makes the preprocessing a shared component instead of hidden logic inside training code. It is defined once and reused in datamodule.py, evaluate.py and predict.py. Preprocessing parameters live in config so they are versioned and reproducible. Preprocessing data with transforms.py matters because it prevents training/serving skew, improves reprodicibility, reduces duplication, improves maintainability, enables testing. 
+
 Add:
 
 - `src/preprocessing/transforms.py`

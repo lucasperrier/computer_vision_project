@@ -8,8 +8,10 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
+from src.preprocessing.transforms import (
+    build_train_transforms,
+    build_val_transforms,
+)
 
 
 class CrackDataset(Dataset):
@@ -63,26 +65,8 @@ class CrackDataModule(pl.LightningDataModule):
         self.ccic_path = ccic_path
 
         # Transforms
-        self.train_transform = A.Compose(
-            [
-                A.Resize(224, 224),
-                A.Rotate(limit=30, p=0.5),
-                A.ColorJitter(
-                    brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5
-                ),
-                A.GaussNoise(std_range=(0.02, 0.10), p=0.5),
-                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ToTensorV2(),
-            ]
-        )
-
-        self.val_test_transform = A.Compose(
-            [
-                A.Resize(224, 224),
-                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ToTensorV2(),
-            ]
-        )
+        self.train_transform = build_train_transforms(self.cfg["preprocessing"])
+        self.val_transform = build_val_transforms(self.cfg["preprocessing"])
 
         self.train_dataset = None
         self.val_dataset = None
