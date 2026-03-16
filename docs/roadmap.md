@@ -61,9 +61,12 @@ Success criteria:
 - raw folder traversal is no longer the hidden source of truth
 
 A manifest is a table that lists every image and its metadata, in the goal of making data ingestion a reproducible process. Without a manifest, you do not know exactly which files were used, you cannot indpect the whole dataset easily, debugging and reproducibility are weaker. With a manifest, every image is recorder, metadata is explicit, dataset changes become trackable. A manifest is an inventory sheet for your dataset.
+
 ---
 
 ### 2. Generate and persist split files
+
+Splitters.py takes the canonical manifest and assignes each sample to train, val and test in a deterministic way, then writes fixed csv files. Splitting the dataset this way matters because it ensures no random runtime split drift, the same manifest ad same seed implies the same split files, split membership is auditable and reproducible.
 
 Add:
 
@@ -91,6 +94,8 @@ Success criteria:
 ---
 
 ### 3. Add dataset validation job
+
+validate_dataset.py validates the dataset in the sense that it fails on corruption, missing files, duplicates, and split leakage before training starts. 
 
 Add:
 
