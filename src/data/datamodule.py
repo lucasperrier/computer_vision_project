@@ -10,7 +10,8 @@ from torch.utils.data import DataLoader, Dataset
 
 from src.preprocessing.transforms import (
     build_train_transforms,
-    build_val_transforms,
+    build_eval_transforms,
+    build_inference_transforms,
 )
 
 
@@ -46,6 +47,7 @@ class CrackDataModule(pl.LightningDataModule):
         val_split: float = 0.1,
         test_split: float = 0.1,
         robustness_split: float = 0.1,
+        preprocessing: dict | None = None,
         sdnet_path: str = "data/raw/sdnet2018",
         ccic_path: str = "data/raw/ccic",
         seed: int = 42,
@@ -59,14 +61,25 @@ class CrackDataModule(pl.LightningDataModule):
         self.robustness_split = float(robustness_split)
         self.seed = int(seed)
         self.verbose = bool(verbose)
+        self.preprocessing = preprocessing or {
+            "image_size": 224,
+            "mean": [0.485, 0.456, 0.406],
+            "std": [0.229, 0.224, 0.225],
+            "hflip_p": 0.5,
+            "brightness_contrast_p": 0.3,
+            "shift_scale_rotate_p": 0.3,
+            "shift_limit": 0.03,
+            "scale_limit": 0.05,
+            "rotate_limit": 10,
+        }
 
         # Paths
         self.sdnet_path = sdnet_path
         self.ccic_path = ccic_path
 
         # Transforms
-        self.train_transform = build_train_transforms(self.cfg["preprocessing"])
-        self.val_transform = build_val_transforms(self.cfg["preprocessing"])
+        self.train_transform = build_train_transforms(self.preprocessing)
+        self.eval_transform = build_eval_transforms(self.preprocessing)
 
         self.train_dataset = None
         self.val_dataset = None
@@ -157,9 +170,9 @@ class CrackDataModule(pl.LightningDataModule):
         )
 
         self.train_dataset = CrackDataset(paths_train, labels_train, transform=self.train_transform)
-        self.val_dataset = CrackDataset(paths_val, labels_val, transform=self.val_test_transform)
-        self.test_dataset = CrackDataset(paths_test, labels_test, transform=self.val_test_transform)
-        self.robust_dataset = CrackDataset(paths_robust, labels_robust, transform=self.val_test_transform)
+        self.val_dataset = CrackDataset(paths_val, labels_val, transform=self.eval_transform)
+        self.test_dataset = CrackDataset(paths_test, labels_test, transform=self.eval_transform)
+        self.robust_dataset = CrackDataset(paths_robust, labels_robust, transform=self.eval_transform)
 
     def _get_paths_labels(
         self, dataset_path: str, label_map: Optional[Dict[str, int]] = None

@@ -1,0 +1,4 @@
+tracking_uri: sqlite:///mlflow.db
+experiment_name: crack_detection
+registry_uri: null
+use_mlflow: true

@@ -1,0 +1,11 @@
+name: vit
+model: vit_base_patch16_224
+num_classes: 2
+pretrained: true
+learning_rate: 0.0001
+weight_decay: 0.00001
+optimizer: adamw
+scheduler: null
+drop_rate: 0.0
+drop_path_rate: 0.0
+label_smoothing: 0.0
