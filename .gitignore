@@ -32,6 +32,8 @@ runpod
 runpod.pub
 
 # mlruns
-/mlruns/
+outputs/
+mlflow.db
+mlruns/
 
 *.db
