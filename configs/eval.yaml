@@ -1,3 +1,16 @@
+defaults:
+  - data: default
+  - model: resnet50
+  - trainer: default
+  - mlflow: default
+  - _self_
+
+task: eval
+seed: 42
+run_name: "eval_${model.name}"
+checkpoint_path: null
+split: test
+
 preprocessing:
   image_size: 224
   mean: [0.485, 0.456, 0.406]

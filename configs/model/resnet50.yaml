@@ -1,0 +1,9 @@
+name: resnet50
+model: resnet50
+num_classes: 2
+pretrained: true
+learning_rate: 0.001
+weight_decay: 0.0001
+optimizer: adam
+scheduler: null
+freeze_backbone: false
