@@ -2,141 +2,62 @@
 
 ## Production-First Visual Inspection Triage System
 
-SentinelInspect reframes this repository from a pure crack-classification project into a **production-first visual inspection triage system** for quality control.
+SentinelInspect reframes crack classification into a **production-first visual inspection triage system** for quality control: reduce manual review volume while controlling miss risk under noise and domain shift.
 
-Today, the repo already contains a real backbone for:
+**Implemented today (real entrypoints in `src/`):**
 
-- deterministic data inventory through manifest generation
-- dataset validation and persisted split artifacts
-- reproducible training jobs driven by Hydra configuration
-- offline evaluation with saved reports and prediction artifacts
-- single-image inference from trained checkpoints
-- MLflow experiment tracking
+- data inventory: `src/data/build_manifest.py`
+- deterministic splits: `src/data/splitters.py`
+- dataset validation: `src/data/validate_dataset.py`
+- Hydra + Lightning training job: `src/training/train.py`
+- offline eval artifacts: `src/evaluation/evaluate.py`
+- single-image inference from checkpoint: `src/inference/predict.py`
+- MLflow tracking: `configs/mlflow/default.yaml`
 
-It also contains **scaffolding / placeholders** for the rest of a production ML surface:
-
-- batch inference CLI wrappers
-- FastAPI serving layer
-- monitoring and drift reporting
-- model registry / promotion / rollback workflows
-- Docker images and CI/CD for ML automation
-
-The product goal is not “just classification”. It is a **decision-support workflow** that helps reduce manual inspection workload while controlling operational risk under noisy images, imperfect data quality, and domain shift.
+**Planned / scaffolded (present but not finished):** batch inference, FastAPI service, monitoring/drift, registry/promotion, CI + Docker.
 
 ---
 
-## Why this matters in industry
+## What “triage” means here
 
-In real quality-control and visual inspection workflows, a model is useful only if it can operate under uncertainty.
+The goal isn’t “autonomous inspection”. It’s **decision support**:
 
-A production system must handle:
-
-- noisy or compressed images from real acquisition pipelines
-- variable lighting, blur, resolution, and background texture
-- domain shift between collection sites or asset types
-- asymmetric risk, where missed defects are more costly than extra reviews
-- traceability requirements for model version, preprocessing version, and dataset provenance
-
-That is why this repository is positioned around **industrialisation**, **evaluation-first ML**, and **deployable inference**, not only benchmark accuracy.
+1. input image(s)
+2. model returns label + confidence
+3. low-confidence cases are routed to review (`needs_review` is a target capability)
+4. reviewer feedback becomes retraining signal
 
 ---
 
-## Product workflow
+## Output contract (target)
 
-This repo is now framed as the backbone of a visual inspection triage feature:
+Per image:
 
-1. An inspector uploads or selects one or more inspection images.
-2. The system returns a predicted label and confidence.
-3. The system can route uncertain cases to `needs_review` / human review.
-4. A reviewer confirms or overrides the result.
-5. Confirmed feedback becomes a future retraining signal.
-
-This product framing supports two operational concepts that matter in ML Engineer / MLOps roles:
-
-- **operating point selection**: choosing thresholds that trade off review volume vs miss rate
-- **human-in-the-loop triage**: using the model to prioritize attention instead of pretending full autonomy
+- `predicted_label` (currently effectively `crack` / `no_crack`)
+- `confidence_score` (implemented in `src/inference/predict.py`)
+- `needs_review` (planned: thresholded abstention)
+- `metadata` (planned: model + preprocessing + data lineage)
 
 ---
 
-## System behavior: triage contract
+## Evaluation-first release posture
 
-The intended output contract for each input image is:
+This repo is structured to support “**train → evaluate → promote**” instead of shipping by accuracy alone.
 
-- `predicted_label`: current task is effectively `crack` / `no_crack`
-- `confidence_score`: class probability or score from the model
-- `needs_review`: abstention / triage flag when confidence is low or risk is high
-- `metadata`: provenance such as model version, preprocessing configuration, dataset/split lineage when available
+**Artifacts already produced by `src/evaluation/evaluate.py`:** `metrics.json`, `classification_report.txt`, `confusion_matrix.npy`, `predictions.npz` under `reports/eval*/`.
 
-### Current implementation status
-
-Implemented today:
-
-- predicted class output in `src/inference/predict.py`
-- class probabilities in `src/inference/predict.py`
-- checkpoint path and model name in inference output
-- evaluation artifacts persisted under `reports/eval*/`
-
-Target behavior, not fully implemented yet:
-
-- `needs_review` / abstain flag
-- calibrated confidence
-- stable API response schema
-- explicit dataset/split version embedded in prediction responses
-- promotion-based model versioning for deployment
-
-For portfolio and production-readiness purposes, the system should be read as a **triage system with abstention as a target capability**, even though abstention is still **in progress**.
+**Still to add (planned):** candidate-vs-champion regression checks, calibration (ECE/Brier), selective prediction curves, OOD + corruption benchmarks, and CI-enforced gates.
 
 ---
 
-## Production surface
+## What exists vs what’s scaffolded
 
-SentinelInspect is structured around the production-first ML lifecycle expected in ML Engineer / MLOps roles:
-
-- **data contract**: raw images -> manifest -> persisted split files -> validation gates
-- **training job**: Hydra-configured training entrypoint with deterministic seeding and MLflow logging
-- **evaluation suite**: offline evaluation with saved metrics, confusion matrices, reports, and prediction artifacts
-- **serving target**: reusable inference core intended to power both API and batch workflows
-- **monitoring target**: prediction logging, drift checks, and operational metrics
-- **promotion target**: candidate evaluation before promote / rollback decisions
-
-Text diagram:
-
-`Data -> Train -> Evaluate (gates) -> Register/Promote -> Serve -> Monitor -> Retrain`
-
-### What is production-grade today vs planned
-
-Production-oriented and implemented today:
-
-- manifest builder: `src/data/build_manifest.py`
-- split generator: `src/data/splitters.py`
-- dataset validator: `src/data/validate_dataset.py`
-- reproducible config loading: `src/config/load.py`, `src/config/schema.py`
-- training job: `src/training/train.py`
-- offline evaluation job: `src/evaluation/evaluate.py`
-- shared transforms module: `src/preprocessing/transforms.py`
-- single-image inference path: `src/inference/predict.py`
-- experiment tracking with MLflow via `configs/mlflow/default.yaml`
-
-Present but still scaffolding / placeholder:
-
-- `scripts/*.py` command wrappers
-- `src/inference/batch_predict.py`
-- `src/inference_service/app.py`, `routes.py`, `schemas.py`
-- `src/monitoring/*.py`
-- `src/mlops/*.py`
-- `src/jobs/*.py`
-- `.github/workflows/ci.yaml`
-- `docker/Dockerfile.api`, `docker/Dockerfile.train`
+- **Use `python -m src...` entrypoints** (implemented).
+- Treat `scripts/`, `src/inference_service/`, `src/monitoring/`, `src/mlops/`, `src/jobs/`, `.github/workflows/`, and `docker/` as **in progress** placeholders.
 
 ---
 
-## One-command workflows
-
-The repository currently has **real runnable modules under `src/`** and **placeholder wrappers under `scripts/`**. The commands below reflect what is actually implemented today.
-
-### Current commands (implemented today)
-
-#### Data preparation
+## Quickstart (implemented modules)
 
 ```bash
 python -m src.data.build_manifest --raw-root data/raw --output-csv data/processed/manifests/manifest.csv --output-json data/processed/manifests/manifest.json
@@ -171,92 +92,11 @@ This writes artifacts such as:
 python -m src.inference.predict image_path=/absolute/path/to/image.jpg checkpoint_path=/absolute/path/to/model.ckpt
 ```
 
-### Intended interface (present as placeholders, not stable yet)
 
-The following files exist but are currently placeholders or empty wrappers:
+## Serving (current vs target)
 
-- `scripts/build_manifest.py`
-- `scripts/validate_dataset.py`
-- `scripts/train_model.py`
-- `scripts/evaluate_model.py`
-- `scripts/batch_predict.py`
-- `src/inference/batch_predict.py`
-- `src/inference_service/app.py`
-
-So for now, treat the `src.*` module entrypoints as the real interface and the `scripts/` surface as **in progress**.
-
----
-
-## Evaluation-first: benchmarks and release gates
-
-This repo follows an **evaluation-first** direction aligned with production ML roles: models should not be promoted based only on one headline metric.
-
-### Current evaluation artifacts
-
-Implemented today:
-
-- test-set evaluation in `src/evaluation/evaluate.py`
-- metrics: accuracy, F1, ROC-AUC when available
-- confusion matrix export
-- text classification report export
-- prediction arrays export for downstream analysis
-- explainability utilities under `src/explainability/`
-- localization/faithfulness helper metrics in `src/evaluation/robustness.py`
-- historical evaluation outputs already stored in `reports/eval_pretrained_*` and `reports/eval_trained_*`
-
-### Current limitations
-
-Not yet fully implemented:
-
-- automated regression comparison against a previous champion model
-- calibration metrics such as ECE or Brier score
-- selective prediction / abstention curves
-- formal OOD evaluation job
-- corruption benchmark suite with severity sweeps
-- release gate enforcement tied to promotion
-
-### Release-gate policy target
-
-The intended release logic is:
-
-1. Train a candidate model.
-2. Run standardized offline evaluation.
-3. Compare against the current reference model.
-4. Check pass/fail gates on quality, robustness, and operational constraints.
-5. Promote only if gates pass; otherwise keep the incumbent and investigate.
-
-Target gate dimensions:
-
-- core classification quality
-- robustness to blur, compression, noise, brightness shifts
-- domain-shift / OOD sensitivity
-- calibration quality
-- selective prediction behavior under review thresholds
-- artifact completeness and provenance logging
-
-This maps directly to the “prototype -> production performance” and “benchmark / regression / release gate” expectations in ML Engineer and MLOps job descriptions.
-
----
-
-## Deployment and serving
-
-### Shared inference core
-
-The repo already contains a reusable inference module in `src/inference/predict.py`. The intended architecture is to reuse the same model-loading and preprocessing behavior across:
-
-- single-image inference
-- batch inference
-- API serving
-
-This is important to reduce training/serving skew.
-
-### Current serving status
-
-Implemented today:
-
-- single-image checkpoint-based inference
-- service config placeholder in `configs/service/default.yaml`
-- shell entrypoint placeholder: `scripts/start_api.sh`
+- **Current:** single-image checkpoint inference via `src/inference/predict.py`.
+- **Target:** shared inference core powering batch + FastAPI, with stable schemas and monitoring hooks.
 
 Scaffolding / placeholder:
 
