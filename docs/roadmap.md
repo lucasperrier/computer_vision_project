@@ -1,383 +1,402 @@
 # Roadmap
 
-This roadmap reorients the repository from a crack classification experiment into a **reliability-first visual inspection ML system**.
+## Production-first inspection triage roadmap
 
-The goal is not to throw away the current repo shape. The goal is to **keep the working foundations already present**, formalize them, and make the data pipeline and evaluation pipeline the main artifact of the project.
+This roadmap reframes the repository as a **production-first visual inspection triage system** rather than a standalone crack-classification experiment.
 
-In other words: keep the current training, config, evaluation, explainability, and serving scaffolding, then upgrade the repo so it demonstrates strong ML engineering under real-world constraints such as noisy inputs, limited labels, distribution shift, and deployment readiness.
+The governing question is:
 
-## Project goal
+> How do we industrialise a computer vision prototype into a deployable, evaluation-first, monitorable inspection workflow that can reduce review workload while controlling miss risk?
 
-Transform the repository into a reusable ML system that supports:
+The roadmap is grounded in the repo state inspected on this branch. It distinguishes clearly between:
 
-- deterministic, auditable dataset construction with manifests, persisted splits, and dataset contracts
-- data quality validation and data ablations as first-class workflows
-- robustness evaluation under corruptions, artifacts, and domain shift
-- reliability analysis with calibration and selective prediction
-- data-efficient learning loops such as active learning, pseudo-labeling, and distillation
-- reusable batch inference and API serving with monitoring hooks
-- MLflow-managed lifecycle with registry, promotion, and evaluation before release
-- tests, packaging, CI, and portfolio-grade documentation
-- basic scale-aware execution and profiling hooks for training and inference
+- **current state**: what is implemented today
+- **next concrete tasks**: actionable work mapped to real files or directories
+- **success criteria**: artifacts and measurable outcomes expected for each capability
 
-## What already exists and should stay
+This aligns with recurring ML Engineer / MLOps job-offer requirements:
 
-The repo already contains useful foundations that should be preserved and extended rather than replaced:
-
-- **PyTorch Lightning training** is already the training backbone.
-- **YAML/Hydra-style configuration** already exists under `configs/`.
-- **Typed config validation** already exists in `src/config/schema.py` and `src/config/load.py`.
-- **Shared preprocessing** already exists in `src/preprocessing/transforms.py`.
-- **Offline evaluation and explainability** already exist in `src/evaluation/` and `src/explainability/`.
-- **Early deterministic data utilities** already exist in `src/data/build_manifest.py`, `src/data/splitters.py`, and `src/data/validate_dataset.py`.
-- **Inference / service / monitoring / MLOps scaffolding** already exists in `src/inference/`, `src/inference_service/`, `src/monitoring/`, and `src/mlops/`.
-- **Docker, CI, and test structure** already exist in the repo layout, even though some pieces are still placeholders.
-
-## Current alignment summary
-
-The repo is **partially aligned already** with the new direction.
-
-### Already aligned
-
-- deterministic manifest builder exists
-- deterministic split generation exists
-- dataset validation exists
-- preprocessing has already been extracted into a shared module
-- typed config validation is already in place
-- evaluation and explainability workflows already produce reusable artifacts
-- directories and modules for inference, API serving, monitoring, MLOps, jobs, and CI are already present
-
-### Partially aligned
-
-- `src/data/datamodule.py` still performs runtime split generation instead of fully consuming persisted split artifacts
-- manifest output is currently CSV/JSON-oriented rather than centered on a canonical parquet contract
-- robustness evaluation exists as a concept, but not yet as a complete corruption benchmark suite with tracked degradation curves
-- inference/service/monitoring/registry modules exist, but several files are placeholders or only minimally implemented
-- tests exist, but current coverage is still narrow and one current test relies on the real dataset layout
-- Dockerfiles and CI workflow files exist, but are not yet fully implemented
-
-### Missing or not yet formalized
-
-- dataset contract documentation and richer quality reporting
-- data ablation job orchestration
-- reliability metrics such as ECE, Brier score, and selective prediction curves
-- slice-based and OOD-first evaluation workflow
-- active learning, pseudo-labeling, and distillation loops
-- release gating tied to MLflow promotion
-- production-ready API contracts, metrics exposure, and prediction logging
-- explicit throughput/latency profiling and scale-oriented execution options
-
-## Reoriented roadmap
-
-The roadmap below keeps the current foundations and focuses on **formalizing and extending what is already there**.
+- prototype -> production performance
+- CI/CD for ML
+- lifecycle orchestration
+- benchmark-driven release decisions
+- deployable inference
+- monitoring and drift management
+- latency / cost awareness
+- governance and auditability
 
 ---
 
-## Phase 1 — Deterministic data and dataset contract
+## Phase A — Deterministic data contract
 
-### 1. Canonical dataset manifest
+Goal: make the dataset a versioned, auditable contract rather than an implicit folder traversal side effect.
 
-**Keep and extend:** `src/data/build_manifest.py`
+### Current state
 
-Current state:
+Implemented today:
 
-- image enumeration already exists
-- file hashing already exists
-- metadata fields such as dataset, label, size, and dimensions already exist
+- `src/data/build_manifest.py` builds a manifest from `data/raw/`
+- manifest records include path, relative path, dataset, split hint, label, size, dimensions, channels, file size, and SHA256 hash
+- `src/data/splitters.py` creates deterministic `train.csv`, `val.csv`, `test.csv`, and `robustness.csv`
+- `src/data/validate_dataset.py` validates required columns, duplicates, missing files, corrupt images, and split overlap
+- configuration paths already exist in `configs/data/default.yaml`
 
-What to improve:
+Limitations today:
 
-- make the manifest the single source of truth for downstream training/evaluation
-- add optional EXIF / richer source metadata where useful
-- produce `manifest.parquet` as the canonical artifact, with CSV as optional export
-- ensure schema is explicit and documented as a dataset contract
+- canonical artifact is CSV/JSON, not a fully formalized contract with version semantics
+- no explicit `ood.csv` split exists yet
+- training still reads raw folders through `src/data/datamodule.py` instead of consuming persisted split files
+- no standalone data quality report artifact beyond console validation output
 
-Target outputs:
+### Next concrete tasks
 
-- `data/processed/manifests/manifest.parquet`
-- `data/processed/manifests/manifest.csv` (optional convenience export)
+- update `src/data/datamodule.py` to optionally consume `data/processed/manifests/manifest.csv` and `data/processed/splits/*.csv`
+- extend `src/data/splitters.py` to emit `ood.csv` for domain-shift evaluation
+- extend `src/data/validate_dataset.py` or add a companion report module under `src/data/` for richer quality summaries
+- document the contract fields in `docs/archiecture.md` once that doc is no longer a placeholder
+- promote `configs/data/default.yaml` as the single path source for manifest/split locations
 
-Success criteria:
+### Success criteria
 
-- every sample is represented exactly once
-- training never relies on raw folder traversal as its hidden source of truth
-- dataset contents are inspectable, diffable, and reproducible
-
-### 2. Deterministic splits and robustness split definitions
-
-**Keep and extend:** `src/data/splitters.py`
-
-Current state:
-
-- deterministic train/val/test split generation already exists
-- `robustness.csv` output already exists
-
-What to improve:
-
-- add `ood.csv` for held-out source/domain evaluation
-- define the logic for robustness and OOD slices from the manifest itself
-- remove runtime split generation from `CrackDataModule.setup()` and load persisted split membership instead
-
-For this project, define OOD concretely:
-
-- **OOD = train on SDNET and evaluate on CCIC held out entirely**
-- **OOD = train on CCIC and evaluate on SDNET held out entirely**
-
-This makes domain-shift evaluation explicit and grounded in the actual datasets used by the repository.
-
-Target outputs:
-
-- `train.csv`
-- `val.csv`
-- `test.csv`
-- `ood.csv`
-- `robustness.csv`
-
-Success criteria:
-
-- split membership is fixed and auditable
-- no hidden randomness remains in the datamodule
-- OOD and robustness evaluation become part of the default workflow
-
-### 3. Dataset validation and quality report
-
-**Keep and extend:** `src/data/validate_dataset.py`
-
-**Add:** `src/data/data_quality_report.py`
-
-Current state:
-
-- unreadable/corrupt file checks already exist
-- duplicate row/path checks already exist
-- split overlap checks already exist
-- class balance reporting already exists
-
-What to improve:
-
-- add exact duplicate detection based on content hash at report level
-- add near-duplicate detection with perceptual hashing
-- add resolution buckets, blur proxy, and compression artifact proxies
-- produce a reusable report artifact saved alongside manifests/splits
-
-Success criteria:
-
-- training fails before starting if data is invalid
-- quality reporting becomes a standard run artifact
-- duplicates and leakage are systematically prevented
+- training and evaluation can run from persisted manifest/split artifacts without hidden runtime splitting
+- dataset lineage is inspectable via saved manifest and split files
+- validation failures stop downstream training jobs
+- OOD membership is explicit and reproducible
 
 ---
 
-## Phase 2 — Data-centric experimentation
+## Phase B — Training as a reproducible job
 
-### 4. Data ablation harness
+Goal: move from experiment scripts to an industrialised, reproducible training job.
 
-**Add:** `src/jobs/run_data_ablations.py`
+### Current state
 
-Purpose:
+Implemented today:
 
-- treat data composition as a controlled experiment, not a hidden preprocessing detail
+- `src/training/train.py` is a Hydra entrypoint
+- configs are structured under `configs/`
+- deterministic seeding is enabled via `seed_everything` when configured
+- PyTorch Lightning `Trainer` is used for training, validation, and test passes
+- MLflow tracking is wired through `configs/mlflow/default.yaml`
+- best checkpoint export is implemented under `trained_models/...`
 
-Responsibilities:
+Limitations today:
 
-- derive dataset variants from the canonical manifest
-- remove duplicates / near-duplicates
-- filter low-quality samples
-- rebalance by class or source
-- compare source mixtures
-- train and evaluate each variant under the same model configuration
-- log comparison runs to MLflow
+- top-level wrappers in `scripts/train_model.py` are placeholders
+- `pyproject.toml` is empty, so packaging and reproducible install metadata are incomplete
+- no formal job orchestration layer exists in `src/jobs/` yet
+- data loading still depends on runtime split generation in `CrackDataModule`
 
-Minimum target:
+### Next concrete tasks
 
-- implement at least **3 to 5 meaningful ablations**
-- publish a compact comparison table showing metric deltas across variants
+- keep `src/training/train.py` as the canonical job entrypoint and wire stable wrappers only after the core contract is fixed
+- update `src/training/reproducibility.py` and related helpers if more reproducibility metadata is needed
+- make the training log explicit data contract metadata: manifest path, split directory, seed, config name, checkpoint path
+- turn placeholder `scripts/train_model.py` into a thin wrapper only after the internal interface stabilizes
+- populate `pyproject.toml` to support reproducible installs and CI execution
 
-Success criteria:
+### Success criteria
 
-- you can answer which data changes improved robustness or generalization
-- experiments are reproducible and directly comparable
-- the workflow runs as a job, not as manual notebook work
-
----
-
-## Phase 3 — Robustness and reliability evaluation
-
-### 5. Corruption and noise benchmarks
-
-**Keep and extend:** `src/evaluation/robustness.py`
-
-**Add:** `src/evaluation/corruptions.py`, `src/jobs/run_robustness_benchmark.py`
-
-Current state:
-
-- a robustness module already exists, but it is not yet a full benchmark system
-
-What to add:
-
-- synthetic corruptions such as blur, JPEG artifacts, sensor noise, brightness/contrast shifts, and crops
-- degradation curves across corruption severities
-- MLflow logging for robustness metrics and artifacts
-
-Success criteria:
-
-- the repo quantifies sensitivity to realistic artifacts
-- robustness becomes a tracked metric rather than a side analysis
-
-### 6. Reliability metrics and risk-aware evaluation
-
-**Add:** `src/evaluation/reliability.py`
-
-**Extend:** `src/evaluation/metrics.py`
-
-Current state:
-
-- `src/evaluation/metrics.py` exists but is still effectively a placeholder for the broader release-evaluation role
-
-What to add:
-
-- expected calibration error (ECE)
-- Brier score
-- confidence histograms
-- reliability diagrams
-- selective prediction curves such as coverage vs error
-- threshold recommendations for deployment
-
-Success criteria:
-
-- deployment thresholds can be justified quantitatively
-- the system can express when not to trust the model
-
-### 7. Slice-based evaluation and OOD generalization
-
-**Add:** `src/evaluation/slices.py`, `src/jobs/run_slice_eval.py`
-
-Responsibilities:
-
-- evaluate by slice such as source dataset, resolution bucket, crack size proxy, and background texture proxy
-- evaluate explicitly on `ood.csv`
-- generate a standardized evaluation report artifact
-
-Success criteria:
-
-- performance claims become more nuanced and defensible
-- OOD behavior is visible and measurable
+- one documented training command works reliably from config
+- MLflow contains params, metrics, and checkpoint lineage for each run
+- rerunning the same config and seed reproduces equivalent artifacts and split membership
+- training consumes versioned data artifacts rather than hidden folder splits
 
 ---
 
-## Phase 4 — Data-efficient learning loop
+## Phase C — Evaluation pipeline and release gates
 
-### 8. Active learning loop
+Goal: make evaluation the main release decision surface, not a post-hoc notebook exercise.
 
-**Add:** `src/learning/active_learning.py`, `src/jobs/run_active_learning.py`
+### Current state
 
-Responsibilities:
+Implemented today:
 
-- start from a small labeled seed set
-- iteratively train, score the unlabeled pool, acquire samples, and update the labeled set
-- support uncertainty-based or disagreement-based selection
-- log performance vs label budget curves
+- `src/evaluation/evaluate.py` runs offline test evaluation
+- saved artifacts include `metrics.json`, `classification_report.txt`, `confusion_matrix.npy`, and `predictions.npz`
+- `reports/eval_pretrained_*` and `reports/eval_trained_*` contain historical outputs
+- `src/explainability/` provides Grad-CAM / SHAP-oriented analysis utilities
+- `src/evaluation/robustness.py` contains helper functions for localization accuracy and faithfulness-drop style metrics
 
-Success criteria:
+Limitations today:
 
-- the repo demonstrates competence under limited-label settings
-- performance can be shown as a function of labeling cost
+- `src/evaluation/metrics.py` is a placeholder
+- no formal regression benchmark against a previous champion model
+- no OOD job, no corruption severity benchmark, no calibration metrics, no selective prediction metrics
+- release gates are conceptual only and not yet enforced by CI or registry promotion
 
-### 9. Pseudo-labeling and distillation
+### Next concrete tasks
 
-**Add:** `src/learning/pseudo_label.py`, `src/learning/distill.py`
+- implement standardized metric helpers in `src/evaluation/metrics.py`
+- add evaluation job modules under `src/jobs/` for offline benchmark execution instead of manual orchestration
+- extend `src/evaluation/evaluate.py` to emit richer provenance fields and gate-ready summary output
+- add OOD evaluation support once `ood.csv` exists
+- document a candidate release policy in docs and later tie it to CI/CD and promotion logic
 
-Responsibilities:
+### Success criteria
 
-- generate pseudo-labels from a teacher model with confidence filtering
-- train a student under mixed supervision
-- distill toward a smaller deployment-oriented backbone
-
-Success criteria:
-
-- the repo demonstrates practical semi-supervised learning and model compression
-- robustness improvement or inference-cost reduction is measurable
-
----
-
-## Phase 5 — Shared preprocessing and structured config
-
-### 10. Single preprocessing definition used everywhere
-
-**Keep and harden:** `src/preprocessing/transforms.py`
-
-Current state:
-
-- shared train / eval / inference transform builders already exist
-- `src/data/datamodule.py` already uses preprocessing helpers
-
-What to improve:
-
-- ensure evaluation and inference codepaths all consume this shared module consistently
-- version preprocessing through config
-- add tests for transform defaults and parity across workflows
-- optionally add robustness-specific preprocessing toggles without introducing training/serving skew
-
-Success criteria:
-
-- there is no transform duplication across train/eval/inference
-- preprocessing is versioned and testable
-- training/serving skew is reduced
-
-### 11. Config composition and validation
-
-**Keep and extend:** `configs/` structure, `src/config/schema.py`, `src/config/load.py`
-
-Current state:
-
-- structured config directories already exist
-- typed validation already exists through Pydantic models
-
-What to improve:
-
-- keep the config tree clean and task-oriented
-- add benchmark-specific configs such as `configs/benchmarks/robustness.yaml`
-- tighten schema coverage for release evaluation, inference, monitoring, and distributed execution
-- fail fast on invalid benchmark/service/runtime configs
-
-Success criteria:
-
-- swapping model/data/benchmark settings is trivial
-- invalid configs fail early and clearly
-- config composition remains a visible strength of the repo
+- every candidate model produces a standardized evaluation bundle
+- evaluation compares candidate vs reference model with explicit pass/fail outcomes
+- gate dimensions include core quality, robustness, calibration, and selective prediction
+- release decisions become reproducible artifacts, not ad hoc discussion
 
 ---
 
-## Phase 6 — Inference and serving
+## Phase D — Robustness, OOD, calibration, and selective prediction
 
-### 12. Reusable inference core and standardized outputs
+Goal: support risk-aware inspection triage under noise and domain shift.
 
-**Keep and complete:** `src/inference/model_loader.py`, `src/inference/predict.py`, `src/inference/contracts.py`
+### Current state
 
-Current state:
+Implemented today:
 
-- the inference package exists
-- `predict.py` currently performs single-image inference but still carries script-level logic rather than a reusable core
-- `model_loader.py` exists as a placeholder
+- robustness is recognized as a first-class concern in module structure and historical reports
+- `robustness.csv` split artifact is generated by `src/data/splitters.py`
+- explainability tooling exists for qualitative failure analysis
 
-What to improve:
+Limitations today:
 
-- isolate model loading from CLI/script concerns
-- support checkpoint and MLflow-registry loading
-- standardize prediction outputs with label, confidence, optional uncertainty, model version, and preprocessing version
+- `robustness.csv` is currently a copy of the split dataframe, not a dedicated corruption benchmark definition
+- no synthetic corruption benchmark runner exists
+- no expected calibration error, Brier score, reliability diagrams, or coverage-risk curves are implemented
+- `needs_review` / abstention remains a target behavior rather than a shipped feature
 
-Success criteria:
+### Next concrete tasks
 
-- inference is decoupled from training/evaluation scripts
-- both batch and API serving share the same inference core
-- outputs are stable and contract-driven
+- define corruption benchmark utilities under `src/evaluation/` using the existing module structure
+- add calibration and selective prediction metrics to `src/evaluation/metrics.py`
+- extend prediction outputs so confidence can drive an explicit `needs_review` policy
+- persist threshold recommendations in evaluation artifacts for operating point selection
+- use `reports/` as the canonical location for richer benchmark outputs
 
-### 13. Batch inference
+### Success criteria
 
-**Keep and complete:** `src/inference/batch_predict.py` and/or `scripts/batch_predict.py`
+- the repo can report how performance changes under blur, compression, noise, and illumination shifts
+- evaluation artifacts include calibration and coverage-risk metrics
+- the triage contract supports a configurable review threshold
+- operating point selection can be justified quantitatively
 
-Current state:
+---
 
-- batch-prediction entrypoint names already exist, but the implementation is incomplete
+## Phase E — Deployment surface: shared inference core, batch, and FastAPI
+
+Goal: expose a deployable inference surface with stable contracts and minimal training-serving skew.
+
+### Current state
+
+Implemented today:
+
+- `src/inference/predict.py` performs single-image inference from a checkpoint
+- inference uses shared config loading via `src/config/load.py`
+- `configs/inference.yaml` and `configs/service/default.yaml` define configuration surfaces
+
+Limitations today:
+
+- `src/inference/batch_predict.py` is a placeholder
+- `src/inference_service/app.py`, `routes.py`, and `schemas.py` are placeholders
+- the `scripts/` wrappers for batch and API serving are placeholders
+- no stable public request/response schema is implemented yet
+
+### Next concrete tasks
+
+- extract the reusable prediction core from `src/inference/predict.py` so both API and batch use the same function path
+- implement typed request/response schemas in `src/inference_service/schemas.py`
+- implement route handlers in `src/inference_service/routes.py`
+- define batch input and output contracts in `src/inference/contracts.py` and `src/inference/batch_predict.py`
+- keep `configs/service/default.yaml` as the canonical service config entry
+
+### Success criteria
+
+- one shared inference core serves single-image, batch, and API use cases
+- API responses include label, confidence, `needs_review`, and provenance metadata
+- batch and API predictions are numerically consistent on the same input
+- the serving interface is documented and smoke-testable
+
+---
+
+## Phase F — Monitoring and observability
+
+Goal: make model behavior observable in production and capable of drift detection.
+
+### Current state
+
+Repo reality today:
+
+- `src/monitoring/prediction_logger.py` exists but is a placeholder
+- `src/monitoring/drift.py` exists but is a placeholder
+- `src/monitoring/reporting.py` exists in the module tree, but the monitoring layer is not production-ready
+
+There is no implemented service metric exposure or drift report pipeline yet.
+
+### Next concrete tasks
+
+- define structured prediction logging in `src/monitoring/prediction_logger.py`
+- implement simple statistical drift checks in `src/monitoring/drift.py`
+- add report generation in `src/monitoring/reporting.py`
+- integrate latency, error rate, and confidence summaries into the future API surface
+- document alert conditions tied to confidence drift, latency drift, and review-rate spikes
+
+### Success criteria
+
+- predictions can be logged with timestamp, model version, confidence, and request metadata
+- offline drift reports can compare a reference window vs a live window
+- service metrics expose latency and error-rate visibility
+- alert thresholds are defined for operational review
+
+---
+
+## Phase G — Lifecycle orchestration: registry, promotion, rollback
+
+Goal: move from experiment tracking only to lifecycle orchestration with controlled promotion.
+
+### Current state
+
+Implemented today:
+
+- MLflow tracking URI and experiment name are configured in `configs/mlflow/default.yaml`
+- `src/training/train.py` logs parameters, metrics, and artifacts to MLflow
+- `mlflow.db` exists in the repo workspace
+
+Limitations today:
+
+- `registry_uri` is `null` in config
+- `src/mlops/tracking.py`, `registry.py`, and `promote_model.py` are placeholders
+- there is no actual champion/challenger or rollback flow implemented
+
+### Next concrete tasks
+
+- implement registry access and version lookup in `src/mlops/registry.py`
+- implement promotion policy tooling in `src/mlops/promote_model.py`
+- emit evaluation-gate summary artifacts that promotion logic can consume
+- define rollback semantics around incumbent model version and config provenance
+- decide whether MLflow Model Registry or a simpler artifact manifest should be the first production target
+
+### Success criteria
+
+- candidate and champion models have explicit version identities
+- promotion decisions are traceable to evaluation artifacts
+- rollback can restore a known-good version and config set
+- lifecycle orchestration is no longer manual or implicit
+
+---
+
+## Phase H — CI/CD for ML and Dockerized execution
+
+Goal: support CI/CD for ML rather than relying on local-only experimentation.
+
+### Current state
+
+Repo reality today:
+
+- `.github/workflows/ci.yaml` exists but is empty
+- `docker/Dockerfile.api` and `docker/Dockerfile.train` exist but are empty
+- tests are present in `tests/`
+- current test coverage includes manifest building, splitters, preprocessing, validation, and datamodule behavior
+
+### Next concrete tasks
+
+- populate `.github/workflows/ci.yaml` with lint, unit-test, and smoke-eval jobs
+- populate Dockerfiles for training and serving environments
+- keep smoke tests lightweight and artifact-aware
+- add CI checks for placeholder interfaces as they become implemented
+- add a release workflow that runs evaluation gates before promotion steps
+
+### Success criteria
+
+- every pull request runs automated validation on core data and training/evaluation utilities
+- Docker images can build reproducibly for train and serve targets
+- CI/CD for ML supports candidate evaluation before merge or promotion
+- basic smoke tests protect the serving interface from regressions
+
+---
+
+## Phase I — Performance optimization track
+
+Goal: make latency, throughput, and cost first-class engineering constraints.
+
+### Current state
+
+Implemented today:
+
+- model families include both ResNet50 and ViT configurations under `configs/model/`
+- inference code can run on CPU or CUDA depending on availability
+
+Not implemented today:
+
+- no benchmark suite for latency or throughput
+- no batch-vs-online performance comparison
+- no ONNX / TorchScript export path confirmed in the repo
+
+### Next concrete tasks
+
+- add timing instrumentation to batch and API inference once those surfaces are implemented
+- benchmark CPU-only vs GPU inference on representative images
+- compare model families for cost/performance, not only accuracy
+- document whether export formats such as ONNX or TorchScript are worth adding based on measured bottlenecks
+
+### Success criteria
+
+- benchmark artifacts report latency and throughput under defined hardware assumptions
+- deployment recommendations distinguish interactive API from offline batch processing
+- model selection includes quality/cost trade-offs
+- optimization work is guided by measured bottlenecks rather than guesswork
+
+---
+
+## Phase J — Governance, privacy, and compliance posture
+
+Goal: document a realistic compliance stance for a public-data demo and a path toward restricted deployments.
+
+### Current state
+
+Repo reality today:
+
+- datasets are public and non-personal
+- there is no implemented access control, retention policy, or audit trail layer
+- current use case avoids PII by design
+
+### Next concrete tasks
+
+- keep the README explicit that this is a public-data demo
+- add audit and retention requirements to future serving and monitoring docs
+- ensure prediction metadata includes traceability fields once the service surface is implemented
+- document how the stack would adapt to on-prem or restricted client environments
+
+### Success criteria
+
+- demo documentation is honest about privacy scope and implementation limits
+- future production adaptation requirements are explicit
+- governance is treated as part of system design, not an afterthought
+
+---
+
+## Operating model summary
+
+Across all phases, the intended product behavior is:
+
+1. version data deterministically
+2. train reproducibly
+3. evaluate against release gates
+4. expose a stable inference contract
+5. monitor drift and operational health
+6. promote or roll back based on evidence
+7. feed reviewed cases back into retraining
+
+That is the production-first, inspection-triage interpretation of this repository.
+
+---
+
+## Near-term priority stack
+
+If this roadmap is executed incrementally, the highest-value next steps are:
+
+1. make `CrackDataModule` consume persisted manifest/split artifacts
+2. standardize evaluation outputs for release-gate readiness
+3. finish the shared inference core and stable API/batch schemas
+4. wire monitoring and promotion scaffolding into real lifecycle tooling
+5. turn empty CI and Docker placeholders into working ML delivery infrastructure
+
+These steps most directly support the job-offer themes of **industrialisation**, **evaluation-first ML**, **deployable inference**, **monitoring/drift**, and **CI/CD for ML**.
 
 What to improve:
 
