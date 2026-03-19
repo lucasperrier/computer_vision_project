@@ -1,31 +1,470 @@
+
 # Roadmap
 
-## Production-first inspection triage roadmap
+## SentinelInspect roadmap
 
-This roadmap reframes the repository as a **production-first visual inspection triage system** rather than a standalone crack-classification experiment.
+### Ship the strongest version of what this repository already is
 
-The governing question is:
+This roadmap is written against the **current state of this repo**, not an idealized platform.
 
-> How do we industrialise a computer vision prototype into a deployable, evaluation-first, monitorable inspection workflow that can reduce review workload while controlling miss risk?
+The goal is to turn the existing crack-classification project into a **production-first visual inspection triage system** that demonstrates four concrete capabilities:
 
-The roadmap is grounded in the repo state inspected on this branch. It distinguishes clearly between:
+1. reproducible data inputs
+2. standardized evaluation outputs
+3. deployable inference
+4. basic delivery infrastructure
 
-- **current state**: what is implemented today
-- **next concrete tasks**: actionable work mapped to real files or directories
-- **success criteria**: artifacts and measurable outcomes expected for each capability
+The governing product question is:
 
-This aligns with recurring ML Engineer / MLOps job-offer requirements:
+> Can this repository show that a computer vision prototype was turned into a controlled, testable, deployable inspection workflow instead of stopping at training and offline metrics?
 
-- prototype -> production performance
-- CI/CD for ML
-- lifecycle orchestration
-- benchmark-driven release decisions
-- deployable inference
-- monitoring and drift management
-- latency / cost awareness
-- governance and auditability
+That is the hiring signal this roadmap is optimizing for.
 
 ---
+
+## Product framing
+
+SentinelInspect is a **visual inspection triage system** for crack classification.
+
+It is not positioned as full autonomous inspection.
+
+It is positioned as a practical workflow that can:
+
+1. ingest an image
+2. predict `crack` or `no_crack`
+3. return a confidence score
+4. mark low-confidence cases for review
+5. save outputs for later analysis
+
+That framing matches what the repository can credibly support with a focused v1.
+
+---
+
+## What is already real in this repo
+
+The repository already contains meaningful implementation work:
+
+### Data foundations
+
+- `src/data/build_manifest.py` builds a manifest from `data/raw/`
+- `src/data/splitters.py` generates deterministic split files from the manifest
+- `src/data/validate_dataset.py` validates duplicates, missing files, corrupt images, required columns, and split overlap
+- processed artifact directories already exist under:
+	- `data/processed/manifests/`
+	- `data/processed/splits/`
+
+### Training and experiment flow
+
+- Hydra config structure is in place under `configs/`
+- training and evaluation entrypoints exist through:
+	- `configs/train.yaml`
+	- `configs/eval.yaml`
+	- `configs/inference.yaml`
+- MLflow configuration exists in `configs/mlflow/default.yaml`
+- model code exists under `src/models/`
+- training code exists under `src/training/`
+- saved checkpoints already exist under `runs/`
+
+### Evaluation and reporting
+
+- `src/evaluation/evaluate.py` already computes test metrics and writes artifacts
+- evaluation outputs already exist in `reports/`, including:
+	- `metrics.json`
+	- `classification_report.txt`
+	- `confusion_matrix.npy`
+	- `predictions.npz`
+- historical evaluation folders already exist for pretrained and trained models
+
+### Inference and explainability
+
+- `src/inference/predict.py` performs single-image checkpoint inference
+- explainability modules already exist under `src/explainability/`
+- configs for service and inference already exist under `configs/service/` and `configs/inference.yaml`
+
+### Repo structure and delivery scaffolding
+
+- `requirements.txt` already lists the core Python dependencies
+- `docker/` exists with `Dockerfile.api` and `Dockerfile.train`
+- `.github/workflows/ci.yaml` exists
+- tests already exist in `tests/`, including at least `tests/test_datamodule.py` plus `tests/unit/` and `tests/integration/`
+
+This means the repo is **not** starting from zero. The strongest next step is to finish the highest-signal surfaces cleanly.
+
+---
+
+## What is partial or unfinished today
+
+The main gaps are also visible in the repo:
+
+### Data loading gap
+
+- `src/data/datamodule.py` still builds datasets by scanning raw folders and doing runtime splitting with `train_test_split`
+- that means persisted manifest and split artifacts are **not yet the canonical source of truth** for training/evaluation
+
+### Evaluation standardization gap
+
+- `src/evaluation/evaluate.py` already contains working metric logic directly in the file
+- `src/evaluation/metrics.py` still exists as an unfinished placeholder surface
+- there is no clean confidence-based triage analysis or explicit `needs_review` release rule yet
+
+### Inference productization gap
+
+- `src/inference/predict.py` works for single-image inference
+- `src/inference/batch_predict.py` still needs to be finished
+- `src/inference_service/` exists with `app.py`, `routes.py`, `schemas.py`, `dependencies.py`, and `logging.py`, but the service layer is still an incomplete scaffold
+- there is not yet one shared inference core used consistently by CLI, batch, and API
+
+### Delivery gap
+
+- `pyproject.toml` exists but is currently empty
+- `.github/workflows/ci.yaml` exists but still needs to become a real CI workflow
+- `docker/Dockerfile.api` and `docker/Dockerfile.train` exist but still need real build instructions
+- some wrappers in `scripts/` exist, but the highest-value core interfaces should be stabilized first
+
+### Monitoring and MLOps gap
+
+- `src/monitoring/` exists with `prediction_logger.py`, `drift.py`, and `reporting.py`
+- `src/mlops/` exists with `artifact_store.py`, `promote_model.py`, `registry.py`, and `tracking.py`
+- these directories are useful future-facing structure, but they should remain **small follow-on work**, not the main deliverable for v1
+
+---
+
+## Scope principle
+
+This repo becomes stronger by finishing a **small number of visible engineering surfaces well**.
+
+It does not become stronger by pretending to be a full production platform before the core workflow is complete.
+
+So the scope should stay divided into:
+
+- **must ship**
+- **nice to have**
+- **defer**
+
+---
+
+## Must ship
+
+### Phase 1 — Make persisted data artifacts the source of truth
+
+#### Goal
+
+Make the saved manifest and split files the canonical dataset contract.
+
+#### Repo-specific reason
+
+You already have the right artifact builders:
+
+- `src/data/build_manifest.py`
+- `src/data/splitters.py`
+- `src/data/validate_dataset.py`
+
+The missing step is wiring that contract into the runtime path used by training and evaluation.
+
+Right now, `src/data/datamodule.py` still scans:
+
+- `data/raw/sdnet2018`
+- `data/raw/ccic`
+
+and creates splits dynamically with `train_test_split`.
+
+That weakens reproducibility because the persisted split artifacts are not yet the thing the rest of the system actually consumes.
+
+#### Tasks
+
+- refactor `src/data/datamodule.py` to load from:
+	- `data/processed/manifests/manifest.csv`
+	- `data/processed/splits/train.csv`
+	- `data/processed/splits/val.csv`
+	- `data/processed/splits/test.csv`
+- decide whether `robustness.csv` remains a true evaluation split or a later extension
+- route all dataset paths through config instead of hard-coded folder assumptions
+- ensure validation from `src/data/validate_dataset.py` can block downstream training/evaluation if artifacts are invalid
+
+#### Success criteria
+
+- training no longer performs hidden runtime re-splitting
+- evaluation uses the same saved split artifacts as training
+- manifest and split CSVs are enough to reconstruct the dataset membership used in an experiment
+- invalid manifests or overlapping splits fail fast
+
+---
+
+### Phase 2 — Standardize the evaluation bundle around what `src/evaluation/evaluate.py` already writes
+
+#### Goal
+
+Turn evaluation into the main release artifact of the project.
+
+#### Repo-specific reason
+
+You already have a working evaluation path.
+
+`src/evaluation/evaluate.py` currently:
+
+- loads a model
+- runs test inference
+- computes:
+	- accuracy
+	- F1
+	- ROC AUC when possible
+	- confusion matrix
+	- classification report
+- writes:
+	- `metrics.json`
+	- `classification_report.txt`
+	- `confusion_matrix.npy`
+	- `predictions.npz`
+
+So the problem is not “evaluation does not exist.”
+
+The real problem is that the evaluation contract is not yet fully standardized or confidence-aware.
+
+#### Tasks
+
+- move reusable metric helpers into `src/evaluation/metrics.py`
+- keep `src/evaluation/evaluate.py` as the main entrypoint, but make its outputs a stable bundle
+- extend the saved outputs so they clearly include:
+	- core classification metrics
+	- confusion matrix
+	- classification report
+	- per-sample predictions
+	- positive-class confidence scores
+	- a simple threshold analysis for manual review routing
+- define a lightweight first-pass triage rule such as:
+	- mark predictions as `needs_review` when confidence is below a chosen threshold band
+
+#### Success criteria
+
+- every evaluated model produces the same artifact structure in `reports/`
+- confidence scores are saved in a reusable form for downstream analysis
+- `needs_review` can be derived directly from saved prediction outputs
+- evaluation outputs can support a simple deployment decision instead of being just historical logs
+
+---
+
+### Phase 3 — Finish shared inference and expose a usable API surface
+
+#### Goal
+
+Turn the repository into something that can actually serve predictions outside the training script.
+
+#### Repo-specific reason
+
+There is already a working single-image inference path in `src/inference/predict.py`.
+
+That file already:
+
+- loads config with Hydra
+- loads a checkpoint
+- preprocesses a single image
+- runs the model
+- returns class probabilities and predicted class
+
+So the shortest path is to **extract and reuse the existing logic**, not rebuild inference from scratch.
+
+#### Tasks
+
+- extract a shared prediction core from `src/inference/predict.py`
+- finish `src/inference/batch_predict.py`
+- complete the service layer in:
+	- `src/inference_service/schemas.py`
+	- `src/inference_service/routes.py`
+	- `src/inference_service/app.py`
+- keep request/response contracts simple and explicit
+- return at least:
+	- predicted label
+	- confidence
+	- `needs_review`
+	- model name / checkpoint / version metadata
+
+#### Success criteria
+
+- single-image, batch, and API inference all use the same prediction logic
+- API and batch outputs are numerically consistent on the same image
+- the service can be started locally and smoke-tested
+- schemas make the inference interface easy to understand from the repo alone
+
+---
+
+### Phase 4 — Make packaging, CI, and Docker real
+
+#### Goal
+
+Close the gap between “good local project” and “serious ML engineering repo.”
+
+#### Repo-specific reason
+
+This is one of the clearest unfinished parts of the current repo:
+
+- `pyproject.toml` is empty
+- `.github/workflows/ci.yaml` exists but is not yet the real CI story
+- `docker/Dockerfile.api` and `docker/Dockerfile.train` exist but are not yet implemented
+
+Because these files are already visible at the top level, finishing them has outsized value for hiring signal.
+
+#### Tasks
+
+- populate `pyproject.toml` with project metadata and dependencies, likely aligned with `requirements.txt`
+- turn `.github/workflows/ci.yaml` into a working GitHub Actions workflow
+- include at minimum:
+	- linting
+	- unit tests
+	- a lightweight smoke test for one core interface
+- implement `docker/Dockerfile.train`
+- implement `docker/Dockerfile.api`
+
+#### Success criteria
+
+- the repository can be installed reproducibly
+- pull requests run automated checks
+- train and API images build successfully
+- core code paths are protected by CI instead of manual trust
+
+---
+
+## Nice to have
+
+### Phase 5 — Add minimal monitoring hooks
+
+This should stay intentionally small.
+
+The monitoring layer should support the triage story, not become a full observability platform.
+
+#### Repo-specific reason
+
+You already have the module structure:
+
+- `src/monitoring/prediction_logger.py`
+- `src/monitoring/drift.py`
+- `src/monitoring/reporting.py`
+
+That is enough to add a lightweight but credible signal.
+
+#### Tasks
+
+- implement structured prediction logging in `src/monitoring/prediction_logger.py`
+- log the minimum useful fields:
+	- timestamp
+	- model identifier
+	- predicted label
+	- confidence
+	- `needs_review`
+- add a very small offline report in `src/monitoring/reporting.py`
+- keep drift analysis in `src/monitoring/drift.py` lightweight and honest
+
+#### Success criteria
+
+- inference outputs can be logged consistently
+- one offline summary can compare reference vs recent confidence distributions
+- the repo demonstrates post-deployment thinking without overstating platform maturity
+
+---
+
+### Phase 6 — Add small robustness and selective prediction support
+
+This should remain tied to the review-routing story.
+
+#### Repo-specific reason
+
+You already have:
+
+- `src/evaluation/robustness.py`
+- `src/explainability/`
+- saved historical evaluation folders under `reports/`
+
+So a small extension here is plausible, but it should not displace the must-ship items.
+
+#### Tasks
+
+- extend evaluation artifacts with a few simple robustness checks
+- add lightweight confidence and threshold summaries
+- if feasible, add a small coverage-vs-risk style summary
+
+#### Success criteria
+
+- the repo can show how confidence and performance move under mild perturbations
+- threshold selection for `needs_review` has some quantitative backing
+- robustness remains supportive evidence, not a research detour
+
+---
+
+## Defer
+
+The following should remain out of core scope unless the must-ship phases are already cleanly finished:
+
+- large registry and promotion workflows in `src/mlops/`
+- rollback automation
+- complex champion/challenger orchestration
+- extensive OOD benchmarking
+- active learning loops
+- pseudo-labeling
+- distillation
+- cloud deployment buildout
+- Kubernetes
+- ONNX or TorchScript export unless latency profiling proves it matters
+
+These are fine future directions, but they should not compete with the strongest v1 story.
+
+---
+
+## Final target state for this repo
+
+The shipped version of this repository should support the following concrete story:
+
+### Data
+
+`src/data/build_manifest.py`, `src/data/splitters.py`, and `src/data/validate_dataset.py` produce the dataset contract, and `src/data/datamodule.py` consumes it.
+
+### Training
+
+Training is config-driven through `configs/` and tracked in MLflow.
+
+### Evaluation
+
+`src/evaluation/evaluate.py` produces a standardized bundle in `reports/` with confidence-aware triage outputs.
+
+### Inference
+
+The same prediction core powers `src/inference/predict.py`, `src/inference/batch_predict.py`, and the FastAPI service under `src/inference_service/`.
+
+### Delivery
+
+The repo becomes installable, CI-checked, and Dockerized through `pyproject.toml`, `.github/workflows/ci.yaml`, `docker/Dockerfile.train`, and `docker/Dockerfile.api`.
+
+### Monitoring
+
+Predictions can be logged and summarized through the lightweight modules already present in `src/monitoring/`.
+
+That is enough to make the project feel like a deployable ML engineering system rather than a training-only experiment.
+
+---
+
+## Recommended implementation order
+
+Keep the implementation order strict:
+
+1. wire manifest and split artifacts into `src/data/datamodule.py`
+2. standardize the evaluation bundle in `src/evaluation/`
+3. extract shared inference and finish `src/inference_service/`
+4. complete `pyproject.toml`, CI, and Docker
+5. add minimal monitoring hooks
+
+If those five things are finished well, the repository becomes much stronger for hiring than a broader but less finished roadmap.
+
+---
+
+## Hiring signal this roadmap is optimized for
+
+This repo should be able to support claims like:
+
+- built a production-first computer vision triage system rather than a notebook-only classifier
+- implemented deterministic dataset lineage through manifests and persisted split artifacts
+- standardized evaluation outputs and added confidence-aware triage analysis
+- shipped shared inference across single-image, batch, and API workflows
+- added reproducible packaging, CI, and Dockerized execution
+
+That is the level of specificity and scope this repository can credibly own today.
 
 ## Phase A — Deterministic data contract
 
