@@ -1,24 +1,27 @@
 import os
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
 import torch
 from PIL import Image
-from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 
+from src.data.validate_dataset import validate
 from src.preprocessing.transforms import (
     build_train_transforms,
     build_eval_transforms,
     build_inference_transforms,
 )
 
+PATH_CANDIDATES = ("path", "image_path", "relative_path")
 
 class CrackDataset(Dataset):
     def __init__(self, image_paths: List[str], labels: List[int], transform=None):
         self.image_paths = image_paths
-        self.labels = [int(x) for x in labels]  # enforce 0/1 ints
+        self.labels = [int(x) for x in labels]
         self.transform = transform
 
     def __len__(self):
@@ -30,13 +33,11 @@ class CrackDataset(Dataset):
 
         image = Image.open(img_path).convert("RGB")
         if self.transform:
-            image = np.array(image)  # albumentations expects numpy
+            image = np.array(image)
             augmented = self.transform(image=image)
             image = augmented["image"]
 
-        # Ensure dtype works with CrossEntropyLoss
-        label = torch.tensor(label, dtype=torch.long)
-        return image, label
+        return image, torch.tensor(label, dtype=torch.long)
 
 
 class CrackDataModule(pl.LightningDataModule):
@@ -44,23 +45,25 @@ class CrackDataModule(pl.LightningDataModule):
         self,
         batch_size: int = 32,
         num_workers: int = 4,
-        val_split: float = 0.1,
-        test_split: float = 0.1,
-        robustness_split: float = 0.1,
         preprocessing: dict | None = None,
-        sdnet_path: str = "data/raw/sdnet2018",
-        ccic_path: str = "data/raw/ccic",
         seed: int = 42,
         verbose: bool = False,
+        manifest_path: str = "data/processed/manifests/manifest.csv",
+        train_split_path: str = "data/processed/splits/train.csv",
+        val_split_path: str = "data/processed/splits/val.csv",
+        test_split_path: str = "data/processed/splits/test.csv",
+        robustness_split_path: str | None = "data/processed/splits/robustness.csv",
+        raw_root: str = ".",
+        validate_artifacts: bool = True,
+        fail_on_validation_error: bool = True,
+        use_robustness_split: bool = False,
     ):
         super().__init__()
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.val_split = float(val_split)
-        self.test_split = float(test_split)
-        self.robustness_split = float(robustness_split)
         self.seed = int(seed)
         self.verbose = bool(verbose)
+
         self.preprocessing = preprocessing or {
             "image_size": 224,
             "mean": [0.485, 0.456, 0.406],
@@ -73,10 +76,17 @@ class CrackDataModule(pl.LightningDataModule):
             "rotate_limit": 10,
         }
 
-        # Paths
-        self.sdnet_path = sdnet_path
-        self.ccic_path = ccic_path
+        self.manifest_path = Path(manifest_path)
+        self.train_split_path = Path(train_split_path)
+        self.val_split_path = Path(val_split_path)
+        self.test_split_path = Path(test_split_path)
+        self.robustness_split_path = Path(robustness_split_path) if robustness_split_path else None
+        self.raw_root = Path(raw_root)
 
+        self.validate_artifacts = validate_artifacts
+        self.fail_on_validation_error = fail_on_validation_error
+        self.use_robustness_split = use_robustness_split
+        
         # Transforms
         self.train_transform = build_train_transforms(self.preprocessing)
         self.eval_transform = build_eval_transforms(self.preprocessing)
@@ -87,141 +97,66 @@ class CrackDataModule(pl.LightningDataModule):
         self.robust_dataset = None
 
     def prepare_data(self):
-        # Optionally validate disk structure here (no downloading implemented)
-        pass
+        # No download. Optional: check file existence.
+        required = [self.manifest_path, self.train_split_path, self.val_split_path, self.test_split_path]
+        missing = [str(p) for p in required if not p.exists()]
+        if missing:
+            raise FileNotFoundError(f"Missing required processed artifacts: {missing}")
 
     def setup(self, stage: Optional[str] = None):
-        # Load all data
-        sdnet_paths, sdnet_labels = self._get_paths_labels(self.sdnet_path, label_map=None)
-        ccic_paths, ccic_labels = self._get_paths_labels(
-            self.ccic_path, label_map={"Positive": 1, "Negative": 0}
-        )
+        if self.validate_artifacts:
+            report, errors = validate(
+                manifest_path=self.manifest_path,
+                train_path=self.train_split_path,
+                val_path=self.val_split_path,
+                test_path=self.test_split_path,
+                robustness_path=self.robustness_split_path if self.robustness_split_path and self.robustness_split_path.exists() else None,
+                raw_root=self.raw_root,
+            )
+            if self.verbose:
+                print("[CrackDataModule] validation report:", report)
+            if errors and self.fail_on_validation_error:
+                raise ValueError("Dataset artifact validation failed:\n- " + "\n- ".join(errors))
 
-        all_paths = sdnet_paths + ccic_paths
-        all_labels = sdnet_labels + ccic_labels
+        train_df = pd.read_csv(self.train_split_path)
+        val_df = pd.read_csv(self.val_split_path)
+        test_df = pd.read_csv(self.test_split_path)
 
-        if self.verbose:
-            def _count(lbls):
-                return {
-                    0: int(sum(int(x) == 0 for x in lbls)),
-                    1: int(sum(int(x) == 1 for x in lbls)),
-                }
+        self.train_dataset = self._df_to_dataset(train_df, split_name="train", transform=self.train_transform)
+        self.val_dataset = self._df_to_dataset(val_df, split_name="val", transform=self.eval_transform)
+        self.test_dataset = self._df_to_dataset(test_df, split_name="test", transform=self.eval_transform)
 
-            print("[CrackDataModule] SDNET count:", _count(sdnet_labels), "n=", len(sdnet_labels))
-            print("[CrackDataModule] CCIC  count:", _count(ccic_labels), "n=", len(ccic_labels))
-            print("[CrackDataModule] TOTAL count:", _count(all_labels), "n=", len(all_labels))
-
-        if len(all_paths) == 0:
-            raise RuntimeError(
-                "No images found. Check that data exists under "
-                f"{self.sdnet_path} and/or {self.ccic_path}."
+        if self.use_robustness_split and self.robustness_split_path and self.robustness_split_path.exists():
+            robust_df = pd.read_csv(self.robustness_split_path)
+            self.robust_dataset = self._df_to_dataset(
+                robust_df, split_name="robustness", transform=self.eval_transform
             )
 
-        # Ensure labels are 0/1 ints
-        all_labels = [int(x) for x in all_labels]
-        unique = sorted(set(all_labels))
-        if any(l not in (0, 1) for l in unique):
-            raise ValueError(f"Labels must be 0/1. Found labels: {unique}")
+    def _resolve_path_column(self, df: pd.DataFrame) -> str:
+        for c in PATH_CANDIDATES:
+            if c in df.columns:
+                return c
+        raise ValueError(f"Missing path column. Expected one of {PATH_CANDIDATES}")
 
-        if len(unique) < 2:
-            raise ValueError(
-                f"Need both classes present for stratified split. Found only: {unique}"
-            )
+    def _df_to_dataset(self, df: pd.DataFrame, split_name: str, transform):
+        if "label" not in df.columns:
+            raise ValueError(f"[{split_name}] missing required column: label")
 
-        # Validate split ratios
-        total_holdout = self.val_split + self.test_split
-        if not (0.0 < self.robustness_split < 1.0):
-            raise ValueError("robustness_split must be in (0, 1).")
-        if not (0.0 < total_holdout < 1.0):
-            raise ValueError("val_split + test_split must be in (0, 1).")
-        if total_holdout >= (1.0 - self.robustness_split):
-            raise ValueError(
-                "val_split + test_split is too large given robustness_split. "
-                "Must leave some samples for train."
-            )
-
-        # Split: robustness hold-out first
-        paths_train_val_test, paths_robust, labels_train_val_test, labels_robust = train_test_split(
-            all_paths,
-            all_labels,
-            test_size=self.robustness_split,
-            random_state=self.seed,
-            stratify=all_labels,
-        )
-
-        # Then train vs (val+test)
-        paths_train, paths_temp, labels_train, labels_temp = train_test_split(
-            paths_train_val_test,
-            labels_train_val_test,
-            test_size=total_holdout,
-            random_state=self.seed,
-            stratify=labels_train_val_test,
-        )
-
-        # Then val vs test
-        # fraction of temp that should be test:
-        test_frac_of_temp = self.test_split / total_holdout
-        paths_val, paths_test, labels_val, labels_test = train_test_split(
-            paths_temp,
-            labels_temp,
-            test_size=test_frac_of_temp,
-            random_state=self.seed,
-            stratify=labels_temp,
-        )
-
-        self.train_dataset = CrackDataset(paths_train, labels_train, transform=self.train_transform)
-        self.val_dataset = CrackDataset(paths_val, labels_val, transform=self.eval_transform)
-        self.test_dataset = CrackDataset(paths_test, labels_test, transform=self.eval_transform)
-        self.robust_dataset = CrackDataset(paths_robust, labels_robust, transform=self.eval_transform)
-
-    def _get_paths_labels(
-        self, dataset_path: str, label_map: Optional[Dict[str, int]] = None
-    ) -> Tuple[List[str], List[int]]:
+        path_col = self._resolve_path_column(df)
         paths: List[str] = []
         labels: List[int] = []
 
-        if not os.path.exists(dataset_path):
-            return paths, labels
+        for _, row in df.iterrows():
+            p = Path(str(row[path_col]))
+            p = p if p.is_absolute() else (self.raw_root / p)
+            paths.append(str(p))
+            labels.append(int(row["label"]))
 
-        # normalize label_map to be case-insensitive
-        label_map_ci: Optional[Dict[str, int]] = None
-        if label_map is not None:
-            label_map_ci = {str(k).strip().lower(): int(v) for k, v in label_map.items()}
+        unique = sorted(set(labels))
+        if any(l not in (0, 1) for l in unique):
+            raise ValueError(f"[{split_name}] labels must be 0/1. Found: {unique}")
 
-        for root, _, files in os.walk(dataset_path):
-            for file in files:
-                if not file.lower().endswith((".png", ".jpg", ".jpeg")):
-                    continue
-
-                p = os.path.join(root, file)
-                root_l = root.lower()
-
-                if label_map_ci is not None:
-                    folder = os.path.basename(root).strip().lower()
-                    if folder not in label_map_ci:
-                        # also allow label to be in parent folder name
-                        parent = os.path.basename(os.path.dirname(root)).strip().lower()
-                        if parent in label_map_ci:
-                            label = int(label_map_ci[parent])
-                        else:
-                            continue
-                    else:
-                        label = int(label_map_ci[folder])
-                else:
-                    # SDNET-style inference: try to be robust
-                    # Common patterns: crack / cracks / noncrack / no_crack / negative / positive
-                    if "noncrack" in root_l or "no_crack" in root_l or "negative" in root_l:
-                        label = 0
-                    elif "crack" in root_l or "positive" in root_l:
-                        label = 1
-                    else:
-                        # Unknown folder naming => skip (or raise). Skipping avoids poisoning labels.
-                        continue
-
-                paths.append(p)
-                labels.append(int(label))
-
-        return paths, labels
+        return CrackDataset(paths, labels, transform=transform)
     
     def train_dataloader(self):
         return DataLoader(
@@ -251,6 +186,8 @@ class CrackDataModule(pl.LightningDataModule):
         )
 
     def robustness_dataloader(self):
+        if self.robust_dataset is None:
+            raise RuntimeError("Robustness split not enabled or not found.")
         return DataLoader(
             self.robust_dataset,
             batch_size=self.batch_size,
