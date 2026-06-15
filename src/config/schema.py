@@ -12,23 +12,19 @@ class DataConfig(BaseModel):
     processed_data_path: str
 
     manifest_path: str
-    splits_dir: str
+    train_split_path: str
+    val_split_path: str
+    test_split_path: str
+    robustness_split_path: str | None = None
+    raw_root: str = "."
+    validate_artifacts: bool = True
+    fail_on_validation_error: bool = True
+    use_robustness_split: bool = True
 
-    batch_size: int = Field(gt=0)
-    num_workers: int = Field(ge=0)
+    batch_size: int = 32
+    num_workers: int = 4
     pin_memory: bool = True
-    image_size: int = Field(gt=0)
-
-    val_split: float = Field(ge=0.0, le=1.0)
-    test_split: float = Field(ge=0.0, le=1.0)
-    robustness_split: float = Field(ge=0.0, le=1.0)
-
-    @model_validator(mode="after")
-    def validate_split_sum(self) -> "DataConfig":
-        s = self.val_split + self.test_split + self.robustness_split
-        if s >= 1.0:
-            raise ValueError("val_split + test_split + robustness_split must be < 1.0")
-        return self
+    image_size: int = 224
 
 
 class ModelConfig(BaseModel):

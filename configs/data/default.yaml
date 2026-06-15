@@ -3,13 +3,17 @@ interim_data_path: data/interim
 processed_data_path: data/processed
 
 manifest_path: data/processed/manifests/manifest.csv
-splits_dir: data/processed/splits
+train_split_path: data/processed/splits/train.csv
+val_split_path: data/processed/splits/val.csv
+test_split_path: data/processed/splits/test.csv
+robustness_split_path: data/processed/splits/robustness.csv
+raw_root: .
+
+validate_artifacts: true
+fail_on_validation_error: true
+use_robustness_split: false
 
 batch_size: 32
 num_workers: 4
 pin_memory: true
 image_size: 224
-
-val_split: 0.15
-test_split: 0.15
-robustness_split: 0.10

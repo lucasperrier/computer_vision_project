@@ -1,6 +1,5 @@
-import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -13,7 +12,6 @@ from src.data.validate_dataset import validate
 from src.preprocessing.transforms import (
     build_train_transforms,
     build_eval_transforms,
-    build_inference_transforms,
 )
 
 PATH_CANDIDATES = ("path", "image_path", "relative_path")
@@ -110,7 +108,13 @@ class CrackDataModule(pl.LightningDataModule):
                 train_path=self.train_split_path,
                 val_path=self.val_split_path,
                 test_path=self.test_split_path,
-                robustness_path=self.robustness_split_path if self.robustness_split_path and self.robustness_split_path.exists() else None,
+                robustness_path=(
+                    self.robustness_split_path
+                    if self.use_robustness_split
+                    and self.robustness_split_path
+                    and self.robustness_split_path.exists()
+                    else None
+                ),
                 raw_root=self.raw_root,
             )
             if self.verbose:
@@ -150,7 +154,13 @@ class CrackDataModule(pl.LightningDataModule):
             p = Path(str(row[path_col]))
             p = p if p.is_absolute() else (self.raw_root / p)
             paths.append(str(p))
-            labels.append(int(row["label"]))
+            raw_label = str(row["label"]).strip().lower()
+            if raw_label in {"1", "crack", "positive", "pos"}:
+                labels.append(1)
+            elif raw_label in {"0", "non_crack", "no_crack", "negative", "neg"}:
+                labels.append(0)
+            else:
+                raise ValueError(f"[{split_name}] unsupported label value: {row['label']!r}")
 
         unique = sorted(set(labels))
         if any(l not in (0, 1) for l in unique):

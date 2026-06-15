@@ -75,10 +75,16 @@ def main(cfg: DictConfig) -> None:
         datamodule = CrackDataModule(
             batch_size=runtime.data.batch_size,
             num_workers=runtime.data.num_workers,
-            val_split=runtime.data.val_split,
-            test_split=runtime.data.test_split,
-            robustness_split=runtime.data.robustness_split,
-            preprocessing=cfg_dict.get("preprocessing", None),
+            preprocessing={"image_size": runtime.data.image_size},
+            manifest_path=runtime.data.manifest_path,
+            train_split_path=runtime.data.train_split_path,
+            val_split_path=runtime.data.val_split_path,
+            test_split_path=runtime.data.test_split_path,
+            robustness_split_path=runtime.data.robustness_split_path,
+            raw_root=runtime.data.raw_root,
+            validate_artifacts=runtime.data.validate_artifacts,
+            fail_on_validation_error=runtime.data.fail_on_validation_error,
+            use_robustness_split=runtime.data.use_robustness_split,
         )
 
         model = build_model(cfg_dict["model"])
